@@ -67,3 +67,37 @@ def test_inline_ignore_needs_markup_outside_code():
     text = '<!-- shck: ignore dead-link, orphan reason="why" -->\n`<!-- shck: ignore size -->`'
     ignores = markdown.parse(text).ignores
     assert [(i.line, i.checks, i.reason) for i in ignores] == [(1, ("dead-link", "orphan"), "why")]
+
+
+def test_front_matter_scalars_lists_and_quotes():
+    text = "\n".join(
+        [
+            "---",
+            "title: 'Quoted: title'",
+            "status: active # trailing comment",
+            'aliases: [one, "two, still two", three]',
+            "tags:",
+            "  - a",
+            '  - "b c"',
+            "empty:",
+            "---",
+            "body",
+        ]
+    )
+    doc = markdown.parse(text)
+    assert doc.front == {
+        "title": "Quoted: title",
+        "status": "active",
+        "aliases": ["one", "two, still two", "three"],
+        "tags": ["a", "b c"],
+        "empty": "",
+    }
+    assert doc.front_lines["aliases"] == 4
+
+
+def test_head_fields_split_on_the_middle_dot_and_skip_deep_lines():
+    text = (
+        "# T\n\nstatus: active · updated: 2026-10-20\n- **owner**: me\n" + "\n" * 120 + "late: x\n"
+    )
+    fields = [(f.offset, f.key, f.value) for f in markdown.parse(text).head_fields]
+    assert fields == [(2, "status", "active"), (2, "updated", "2026-10-20"), (3, "owner", "me")]

@@ -8,13 +8,23 @@ from shouldercheck.records.findings import SEVERITIES
 from shouldercheck.records.globs import Globs
 
 CONFIG_NAMES = ("shck.toml", ".shck.toml")
-CHECK_NAMES = ("dead-link", "dead-anchor", "orphan", "ignore-without-reason")
+CHECK_NAMES = (
+    "dead-link",
+    "dead-anchor",
+    "orphan",
+    "missing-field",
+    "alias-dup",
+    "ignore-without-reason",
+)
 DEFAULT_CHECKS = {
     "dead-link": "error",
     "dead-anchor": "error",
     "orphan": "warn",
+    "missing-field": "warn",
+    "alias-dup": "error",
     "ignore-without-reason": "warn",
 }
+FIELD_RULE_KEYS = {"match", "folder_any", "require", "values", "body_lines", "body_lines_max"}
 ORPHAN_KEYS = {"scope", "catalog", "exempt", "exempt_names", "unit", "folder_depth", "grace_days"}
 LINK_STYLES = ("markdown", "wiki", "backtick")
 DEFAULT_LINKS = ("markdown", "wiki")
@@ -50,6 +60,19 @@ class LinkOpts:
 
 
 @dataclass(frozen=True)
+class FieldRule:
+    """`match` rules check every matching file; `folder_in` rules need one file per folder."""
+
+    require: tuple[str, ...]
+    match: Globs
+    folder_in: Globs | None
+    when_present: Globs
+    values: dict[str, tuple[str, ...]] = field(compare=False)
+    body_lines: bool = False
+    body_lines_max: int = 12
+
+
+@dataclass(frozen=True)
 class OrphanOpts:
     scope: Globs
     catalog: Globs
@@ -76,6 +99,7 @@ class Config:
     format: str
     frozen_manifests: Globs
     orphans: OrphanOpts
+    field_rules: tuple[FieldRule, ...]
 
     @property
     def display_path(self) -> str | None:
@@ -140,7 +164,7 @@ def _link_styles(data: dict, where: str) -> tuple[str, ...]:
 def _flag(table: dict, key: str, where: str) -> bool:
     value = table.get(key, False)
     if not isinstance(value, bool):
-        raise ConfigError(f"{where}: [links_opts] {key} must be true or false")
+        raise ConfigError(f"{where}: {key} must be true or false")
     return value
 
 
@@ -193,17 +217,58 @@ def discover(start: Path) -> Path | None:
     return None
 
 
-def _integer(table: dict, key: str, default: int, minimum: int, where: str) -> int:
+def _integer(table: dict, key: str, default: int, minimum: int, section: str, where: str) -> int:
     value = table.get(key, default)
     if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
-        raise ConfigError(f"{where}: [orphans] {key} must be an integer >= {minimum}")
+        raise ConfigError(f"{where}: [{section}] {key} must be an integer >= {minimum}")
     return value
+
+
+def _rule_values(rule: dict, where: str) -> dict[str, tuple[str, ...]]:
+    table = rule.get("values", {})
+    ok = isinstance(table, dict) and all(
+        isinstance(v, list) and all(isinstance(i, str) for i in v) for v in table.values()
+    )
+    if not ok:
+        raise ConfigError(f"{where}: [[fields.rules]] values must map keys to lists of strings")
+    return {key: tuple(items) for key, items in table.items()}
+
+
+def _field_rule(rule: dict, where: str) -> FieldRule:
+    unknown = sorted(set(rule) - FIELD_RULE_KEYS)
+    if unknown:
+        raise ConfigError(f"{where}: unknown key(s) in [[fields.rules]]: {', '.join(unknown)}")
+    if ("match" in rule) == ("folder_any" in rule):
+        raise ConfigError(f"{where}: [[fields.rules]] needs exactly one of match, folder_any")
+    require = _strings(rule, "require", (), where)
+    if not require:
+        raise ConfigError(f"{where}: [[fields.rules]] require must list at least one key")
+    folder = (
+        _table(rule, "folder_any", {"in", "when_present"}, where) if "folder_any" in rule else {}
+    )
+    return FieldRule(
+        require=require,
+        match=_globs(rule, "match", (), where),
+        folder_in=_globs(folder, "in", (), where) if "folder_any" in rule else None,
+        when_present=_globs(folder, "when_present", (), where),
+        values=_rule_values(rule, where),
+        body_lines=_flag(rule, "body_lines", where),
+        body_lines_max=_integer(rule, "body_lines_max", 12, 1, "fields.rules", where),
+    )
+
+
+def _field_rules(data: dict, where: str) -> tuple[FieldRule, ...]:
+    table = _table(data, "fields", {"rules"}, where)
+    rules = table.get("rules", [])
+    if not isinstance(rules, list) or not all(isinstance(rule, dict) for rule in rules):
+        raise ConfigError(f"{where}: fields.rules must be an array of tables")
+    return tuple(_field_rule(rule, where) for rule in rules)
 
 
 def _orphans(data: dict, where: str) -> OrphanOpts:
     table = _table(data, "orphans", ORPHAN_KEYS, where)
-    depth = _integer(table, "folder_depth", 3, 1, where)
-    grace = _integer(table, "grace_days", 0, 0, where)
+    depth = _integer(table, "folder_depth", 3, 1, "orphans", where)
+    grace = _integer(table, "grace_days", 0, 0, "orphans", where)
     return OrphanOpts(
         scope=_globs(table, "scope", (), where),
         catalog=_globs(table, "catalog", (), where),
@@ -234,7 +299,8 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     where = found.name if found else "built-in profile"
     top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
     top |= {"max_read_chars", "links", "fail_on", "format"}
-    unknown = sorted(set(data) - top - {"checks", "links_opts", "orphans", "per-path-ignores"})
+    allowed = {"checks", "links_opts", "orphans", "fields", "per-path-ignores"}
+    unknown = sorted(set(data) - top - allowed)
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
     if data.get("version", 1) != 1:
@@ -258,6 +324,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         frozen=_globs(data, "frozen", (), where),
         frozen_manifests=_globs(data, "frozen_manifests", (), where),
         orphans=_orphans(data, where),
+        field_rules=_field_rules(data, where),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,

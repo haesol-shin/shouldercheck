@@ -84,6 +84,22 @@ folder_depth = 3
 
 A manifest that cannot be read freezes its whole folder and ends the run with exit code `3`. `--paths FILE...` lists findings only for those files while the link graph still covers the whole scope. `--baseline report.json` mutes findings whose fingerprint is in an earlier JSON report (`shck check --format json > report.json`); shck itself never writes it.
 
+`[[fields.rules]]` entries make the `missing-field` check. A `match` rule requires keys in every matching file. With `body_lines = true` a `key: value` line in the first `body_lines_max` lines counts too, and `status: active · updated: 2026-10-20` reads as `active`. A `folder_any` rule asks that at least one file in each matching folder has the key, only in folders that hold a file matching `when_present`.
+
+```toml
+[[fields.rules]]
+match = ["projects/*.md"]
+require = ["status"]
+values = { status = ["active", "hold", "done"] }
+body_lines = true
+
+[[fields.rules]]
+folder_any = { in = ["jobs/*"], when_present = ["result*.md"] }
+require = ["owner"]
+```
+
+`alias-dup` reads `aliases` from front matter. The same alias on two documents is an `error`; an alias equal to another document's title or file name is a `candidate`. Frozen files own no alias.
+
 ## Requirements
 
 - Python 3.11 or later. No runtime dependencies.

@@ -19,6 +19,12 @@ TRAILING_HASHES = re.compile(r"[ \t]+#+$")
 WIKI = re.compile(r"\[\[([^\[\]\n]+?)\]\]")
 HTML_ID = re.compile(r"""<[A-Za-z][^<>]*?\b(?:id|name)\s*=\s*["']([^"']+)["']""")
 PATHISH = re.compile(r"^[^\s`]{3,300}$")
+FRONT_KEY = re.compile(r"^([A-Za-z_][\w-]*)\s*:\s*(.*?)\s*$")
+FRONT_ITEM = re.compile(r"^\s+-\s+(.*?)\s*$")
+TRAILING_COMMENT = re.compile(r"\s+#.*$")
+HEAD_FIELD = re.compile(r"^\s*(?:[-*]\s+)?\**([A-Za-z][\w-]*)\**\s*:\s*(.*?)\s*$")
+HEAD_SEPARATOR = re.compile(r"\s·\s")
+HEAD_LINES = 100
 
 
 @dataclass(frozen=True)
@@ -56,6 +62,15 @@ class CodeSpan:
     text: str
 
 
+@dataclass(frozen=True)
+class BodyField:
+    """A `key: value` pair `offset` lines below the end of the front matter."""
+
+    offset: int
+    key: str
+    value: str
+
+
 @dataclass
 class ParsedDoc:
     body_start: int = 0
@@ -65,6 +80,9 @@ class ParsedDoc:
     wikis: list[Wiki] = field(default_factory=list)
     code_spans: list[CodeSpan] = field(default_factory=list)
     html_ids: set[str] = field(default_factory=set)
+    front: dict[str, str | list[str]] = field(default_factory=dict)
+    front_lines: dict[str, int] = field(default_factory=dict)
+    head_fields: list[BodyField] = field(default_factory=list)
 
 
 def split_lines(text: str) -> list[str]:
@@ -269,9 +287,79 @@ def find_wikis(text: str, line_no: int) -> list[Wiki]:
     return found
 
 
+def _unquote(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1]
+    return value
+
+
+def _inline_list(value: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    quote = ""
+    for char in value[1:-1]:
+        if quote:
+            if char == quote:
+                quote = ""
+            else:
+                current.append(char)
+        elif char in "\"'":
+            quote = char
+        elif char == ",":
+            items.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+    items.append("".join(current).strip())
+    return [item for item in items if item]
+
+
+def parse_front_matter(lines: list[str]) -> tuple[dict[str, str | list[str]], dict[str, int]]:
+    """Minimal YAML: `key: value`, `key: [a, "b c"]`, and `key:` followed by `- item` lines.
+
+    `lines` are the lines between the `---` fences; keys map to 1-based line numbers
+    counted from the first fence.
+    """
+    values: dict[str, str | list[str]] = {}
+    numbers: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        match = FRONT_KEY.match(line)
+        if not match:
+            continue
+        key, raw = match.group(1), match.group(2)
+        numbers[key] = index + 2
+        if raw.startswith("[") and raw.endswith("]"):
+            values[key] = _inline_list(raw)
+        elif raw:
+            values[key] = _unquote(TRAILING_COMMENT.sub("", raw) if raw[0] not in "\"'" else raw)
+        else:
+            items = []
+            for follow in lines[index + 1 :]:
+                item = FRONT_ITEM.match(follow)
+                if not item:
+                    break
+                items.append(_unquote(item.group(1).strip()))
+            values[key] = items or ""
+    return values, numbers
+
+
+def find_head_fields(lines: list[str], start: int) -> list[BodyField]:
+    """`key: value` pairs in the first lines of the body, also `a: x · b: y` on one line."""
+    found = []
+    for offset, line in enumerate(lines[start : start + HEAD_LINES]):
+        for segment in HEAD_SEPARATOR.split(line):
+            match = HEAD_FIELD.match(segment)
+            if match:
+                found.append(BodyField(offset, match.group(1), match.group(2)))
+    return found
+
+
 def parse(text: str) -> ParsedDoc:
     lines = split_lines(text)
     doc = ParsedDoc(body_start=body_start(lines))
+    if doc.body_start:
+        doc.front, doc.front_lines = parse_front_matter(lines[1 : doc.body_start - 1])
+    doc.head_fields = find_head_fields(lines, doc.body_start)
     for line_no, line in prose_lines(lines, doc.body_start):
         masked, spans = mask_inline_code(line)
         doc.links.extend(find_links(masked, line_no))
