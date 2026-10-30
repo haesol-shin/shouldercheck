@@ -116,7 +116,13 @@ def _row(finding: Finding) -> str:
     return clip("  ".join(parts))
 
 
-def run_check(cfg: Config, only: set[str] | None = None, skip: set[str] | None = None) -> Report:
+def run_check(
+    cfg: Config,
+    only: set[str] | None = None,
+    skip: set[str] | None = None,
+    baseline: set[str] | None = None,
+    paths: tuple[str, ...] | None = None,
+) -> Report:
     report = Report(str(cfg.root), cfg.display_path)
     if not cfg.root.is_dir():
         report.error = "root is not a directory"
@@ -131,7 +137,8 @@ def run_check(cfg: Config, only: set[str] | None = None, skip: set[str] | None =
     findings = [f for name, run in CHECKS.items() if name in wanted for f in run(corpus)]
     if IGNORE_CHECK in wanted:
         findings += reasonless_ignores(corpus, cfg)
-    result = partition(findings, corpus, cfg)
+    result = partition(findings, corpus, cfg, baseline, paths)
+    report.error = "; ".join(corpus.errors) or None
     report.files = len(corpus.docs)
     report.frozen_files = sum(doc.frozen for doc in corpus.docs.values())
     report.skipped = scan.skipped

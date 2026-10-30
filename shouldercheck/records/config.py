@@ -8,8 +8,14 @@ from shouldercheck.records.findings import SEVERITIES
 from shouldercheck.records.globs import Globs
 
 CONFIG_NAMES = ("shck.toml", ".shck.toml")
-CHECK_NAMES = ("dead-link", "dead-anchor", "ignore-without-reason")
-DEFAULT_CHECKS = {"dead-link": "error", "dead-anchor": "error", "ignore-without-reason": "warn"}
+CHECK_NAMES = ("dead-link", "dead-anchor", "orphan", "ignore-without-reason")
+DEFAULT_CHECKS = {
+    "dead-link": "error",
+    "dead-anchor": "error",
+    "orphan": "warn",
+    "ignore-without-reason": "warn",
+}
+ORPHAN_KEYS = {"scope", "catalog", "exempt", "exempt_names", "unit", "folder_depth", "grace_days"}
 LINK_STYLES = ("markdown", "wiki", "backtick")
 DEFAULT_LINKS = ("markdown", "wiki")
 WIKI_RESOLVE = ("stem", "title", "path")
@@ -44,6 +50,17 @@ class LinkOpts:
 
 
 @dataclass(frozen=True)
+class OrphanOpts:
+    scope: Globs
+    catalog: Globs
+    exempt: Globs
+    exempt_names: Globs
+    unit: str = "file"
+    folder_depth: int = 3
+    grace_days: int = 0
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     path: Path | None
@@ -57,6 +74,8 @@ class Config:
     ignores: tuple[PathIgnore, ...]
     fail_on: str
     format: str
+    frozen_manifests: Globs
+    orphans: OrphanOpts
 
     @property
     def display_path(self) -> str | None:
@@ -174,6 +193,28 @@ def discover(start: Path) -> Path | None:
     return None
 
 
+def _integer(table: dict, key: str, default: int, minimum: int, where: str) -> int:
+    value = table.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        raise ConfigError(f"{where}: [orphans] {key} must be an integer >= {minimum}")
+    return value
+
+
+def _orphans(data: dict, where: str) -> OrphanOpts:
+    table = _table(data, "orphans", ORPHAN_KEYS, where)
+    depth = _integer(table, "folder_depth", 3, 1, where)
+    grace = _integer(table, "grace_days", 0, 0, where)
+    return OrphanOpts(
+        scope=_globs(table, "scope", (), where),
+        catalog=_globs(table, "catalog", (), where),
+        exempt=_globs(table, "exempt", (), where),
+        exempt_names=_globs(table, "exempt_names", (), where),
+        unit=_choice(table.get("unit", "file"), ("file", "folder"), "[orphans] unit", where),
+        folder_depth=depth,
+        grace_days=grace,
+    )
+
+
 def _read(path: Path) -> dict:
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
@@ -191,9 +232,9 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     found = config_path.resolve() if config_path else discover(start)
     data = _read(found) if found else {}
     where = found.name if found else "built-in profile"
-    top = {"version", "root", "include", "exclude", "frozen", "max_read_chars", "links"}
-    top |= {"fail_on", "format"}
-    unknown = sorted(set(data) - top - {"checks", "links_opts", "per-path-ignores"})
+    top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
+    top |= {"max_read_chars", "links", "fail_on", "format"}
+    unknown = sorted(set(data) - top - {"checks", "links_opts", "orphans", "per-path-ignores"})
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
     if data.get("version", 1) != 1:
@@ -215,6 +256,8 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         include=_globs(data, "include", DEFAULT_INCLUDE, where),
         exclude=_globs(data, "exclude", DEFAULT_EXCLUDE, where),
         frozen=_globs(data, "frozen", (), where),
+        frozen_manifests=_globs(data, "frozen_manifests", (), where),
+        orphans=_orphans(data, where),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,

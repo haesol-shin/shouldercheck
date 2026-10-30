@@ -7,6 +7,7 @@ from urllib.parse import unquote
 
 from shouldercheck.records import anchors, markdown
 from shouldercheck.records.config import Config
+from shouldercheck.records.frozen import read_manifests
 from shouldercheck.records.scan import Scan
 
 SCHEME = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]+:|//|[A-Za-z]:[\\/])")
@@ -55,10 +56,13 @@ def _strip_md(name: str) -> str:
 
 
 class Corpus:
-    def __init__(self, cfg: Config, scan: Scan, docs: dict[str, Doc]) -> None:
+    def __init__(
+        self, cfg: Config, scan: Scan, docs: dict[str, Doc], errors: list[str] | None = None
+    ) -> None:
         self.cfg = cfg
         self.scan = scan
         self.docs = docs
+        self.errors = errors or []
         self._by_name: dict[str, list[str]] = {}
         self._md_stems: dict[str, list[str]] = {}
         for rel in sorted(scan.all_files):
@@ -240,6 +244,7 @@ def _is_label_like(link: markdown.Link, path: str) -> bool:
 
 
 def build_corpus(cfg: Config, scan: Scan) -> Corpus:
+    manifests = read_manifests(cfg, scan)
     docs: dict[str, Doc] = {}
     for rel in scan.paths:
         try:
@@ -247,6 +252,7 @@ def build_corpus(cfg: Config, scan: Scan) -> Corpus:
         except (OSError, UnicodeDecodeError):
             scan.skipped.append((rel, "unreadable"))
             continue
-        docs[rel] = Doc(rel, text, markdown.parse(text), cfg.frozen(rel))
+        frozen = cfg.frozen(rel) or manifests.covers(rel)
+        docs[rel] = Doc(rel, text, markdown.parse(text), frozen)
     scan.skipped.sort()
-    return Corpus(cfg, scan, docs)
+    return Corpus(cfg, scan, docs, manifests.errors)

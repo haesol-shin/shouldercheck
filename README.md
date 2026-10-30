@@ -69,6 +69,21 @@ An exception without a `reason` still applies, but is reported as an `ignore-wit
 
 Link styles and anchors are set in the profile. `links` picks which styles count (`markdown`, `wiki`, `backtick`; default `markdown` and `wiki`). Under `[links_opts]`, `wiki_resolve` is `stem`, `title` or `path`, and `slug` is `github`, `mkdocs` or `obsidian`; `heading_ids`, `html_ids`, `backtick_dead` and `link_dirs` are off by default. A `[[wiki]]` name that matches two files is a `candidate`, never resolved by guess.
 
+The `orphan` check is on only when `[orphans] scope` is set. A file with no inbound link from another file is a `warn`; a file linked only from a `catalog` file (a generated index) is a `candidate`. With `unit = "folder"` the unit is the first `folder_depth` folders of the path, which suits job folders that are meant to stay unlinked; a file with fewer folders is its own unit. `exempt` and `exempt_names` skip entry files and inputs. `grace_days` hides files younger than that many days by modification time, and is off by default.
+
+```toml
+frozen_manifests = ["hashes.json", "*.sha256"]   # files these list are frozen
+
+[orphans]
+scope = ["notes/**"]
+catalog = ["index.md"]
+exempt_names = ["intent.md"]
+unit = "folder"
+folder_depth = 3
+```
+
+A manifest that cannot be read freezes its whole folder and ends the run with exit code `3`. `--paths FILE...` lists findings only for those files while the link graph still covers the whole scope. `--baseline report.json` mutes findings whose fingerprint is in an earlier JSON report (`shck check --format json > report.json`); shck itself never writes it.
+
 ## Requirements
 
 - Python 3.11 or later. No runtime dependencies.

@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import posixpath
 import sys
 from pathlib import Path
 
@@ -38,16 +39,45 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument(
         "--fail-on", choices=FAIL_ON, help="exit 1 at this severity (default: never)"
     )
+    check.add_argument("--baseline", type=Path, help="earlier JSON report; its findings are muted")
+    check.add_argument(
+        "--paths", nargs="+", metavar="PATH", help="list findings only for these files or folders"
+    )
     return parser
 
 
-def _check(args: argparse.Namespace) -> int:
+def _load_baseline(path: Path) -> set[str]:
+    """Fingerprints of an earlier JSON report; shck never writes one itself."""
     try:
-        cfg = load_config(args.config, args.root, Path.cwd())
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {finding["fingerprint"] for finding in data["findings"]}
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ConfigError(f"cannot use baseline {path.name}: {exc}") from exc
+
+
+def _root_relative(paths: list[str], root: Path, cwd: Path) -> tuple[str, ...]:
+    """Accept paths relative to the cwd, absolute, or already relative to the root."""
+    result = []
+    for given in paths:
+        absolute = (cwd / given).resolve()
+        try:
+            rel = absolute.relative_to(root).as_posix()
+        except ValueError:
+            rel = posixpath.normpath(given)
+        result.append("" if rel == "." else rel.rstrip("/"))
+    return tuple(result)
+
+
+def _check(args: argparse.Namespace) -> int:
+    cwd = Path.cwd()
+    try:
+        cfg = load_config(args.config, args.root, cwd)
+        baseline = _load_baseline(args.baseline) if args.baseline else None
     except ConfigError as exc:
         print(f"shck: {exc}", file=sys.stderr)
         return 2
-    report = run_check(cfg, args.only, args.skip)
+    paths = _root_relative(args.paths, cfg.root, cwd) if args.paths else None
+    report = run_check(cfg, args.only, args.skip, baseline, paths)
     if (args.format or cfg.format) == "json":
         print(json.dumps(report.to_json(), ensure_ascii=False, indent=2))
     else:
