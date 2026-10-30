@@ -1,0 +1,41 @@
+[project]
+name = "shouldercheck"
+version = "0.0.0"
+description = "Check that an agent read the records it relies on before it publishes or delegates work."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/haesol-shin/shouldercheck"
+Changelog = "https://github.com/haesol-shin/shouldercheck/blob/main/CHANGELOG.md"
+Issues = "https://github.com/haesol-shin/shouldercheck/issues"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "C901"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[project.scripts]
+shck = "shouldercheck.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"

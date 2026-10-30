@@ -1,0 +1,28 @@
+# AGENTS.md
+
+Instructions for coding agents working in this repository.
+
+## Commands
+
+```sh
+uv sync --locked
+uv run ruff check
+uv run ruff format --check
+uv run pytest
+```
+
+Run all of them before you report a change as done.
+
+## Rules
+
+- Read [CONTRIBUTING.md](CONTRIBUTING.md) first. It is the source for code style, commits, and pull requests.
+- No runtime dependencies. Standard library only.
+- The judging core never calls a model and never imports Hermes or omp. Adapters are thin and use only public plugin or extension APIs.
+- Keep the change minimal. Do not refactor unrelated code.
+- Tests use synthetic fixtures. Use `.invalid` hosts and placeholder paths, never real accounts, chat ids, or local paths.
+
+## Before you publish
+
+- Ask the maintainer before you post an issue, a comment, or a pull request, and before you merge.
+- Search your diff for personal values, tokens, and absolute local paths.
+- Add a `CHANGELOG.md` line under `Unreleased` if users can see the change.
