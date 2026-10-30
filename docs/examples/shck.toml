@@ -1,0 +1,68 @@
+# Example profile for a synthetic notes folder. Copy it to the root of a record base as
+# `shck.toml` and adjust the globs. shck only reads this file.
+version = 1
+root = "."
+
+include = ["projects/**/*.md", "areas/**/*.md", "jobs/**/*.md", "index.md"]
+exclude = [
+  ".*/**",
+  "**/*conflict*",
+  # Reason: drill copies keep the links of the tree they were copied from.
+  "**/drill-copy/**",
+]
+frozen = ["**/snapshots/**", "**/inputs/**"]
+frozen_manifests = ["hashes.json", "*.sha256"]
+links = ["markdown", "wiki", "backtick"]
+fail_on = "never"
+
+[links_opts]
+wiki_resolve = "stem"
+slug = "github"
+
+[checks]
+dead-link = "error"
+dead-anchor = "error"
+orphan = "warn"
+missing-field = "warn"
+alias-dup = "error"
+size = "warn"
+dup-content = "candidate"
+stale = "candidate"
+
+[orphans]
+scope = ["jobs/**"]
+catalog = ["index.md"]
+exempt = ["**/README.md"]
+exempt_names = ["intent.md", "spec.md", "result-v*.md"]
+unit = "folder"
+folder_depth = 2
+grace_days = 0
+
+[size]
+warn_chars = 30000
+high_chars = 50000
+max_line_chars = 2000
+maps = ["index.md"]
+map_budget_chars = 24000
+exclude = ["**/sources/**"]
+
+[stale]
+match = ["projects/*.md"]
+days = 14
+field = "updated"
+
+[[fields.rules]]
+match = ["projects/*.md"]
+require = ["status"]
+values = { status = ["active", "hold", "done"] }
+body_lines = true
+body_lines_max = 12
+
+[[fields.rules]]
+folder_any = { in = ["jobs/*"], when_present = ["result*.md", "design*.md"] }
+require = ["owner"]
+
+[[per-path-ignores]]
+glob = "projects/README.md"
+checks = ["missing-field"]
+reason = "entry map of the folder, not a project file"

@@ -6,8 +6,9 @@ All notable changes to shouldercheck are documented here. The format is based on
 
 ### Added
 - Project skeleton: documentation, CI, and issue and pull request templates.
-- `shck check`: read-only report of dead links in a Markdown record base, with a TOML profile, frozen paths, per-path and inline ignores that require a reason, and text or JSON output.
+- `shck check`: read-only report of dead links in a Markdown record base, with a TOML profile, frozen paths, per-path and inline ignores that should carry a reason, and text or JSON output.
 - `shck check` reports links to headings that do not exist (`dead-anchor`) and resolves `[[wiki]]` links by stem, title or path; two candidates are reported as ambiguous, never guessed.
 - `shck check` lists orphan files or folders, treating catalog files as link sources only; `frozen_manifests` freeze files listed by a manifest (an unreadable one exits 3); `--baseline` mutes earlier findings and `--paths` limits the listing to edited files.
 - `shck check` reports missing or unexpected front matter fields (`missing-field`, with a fallback to `key: value` lines near the top and a per-folder rule) and aliases claimed by two documents (`alias-dup`).
 - `shck check` flags oversized documents, over-long lines and over-budget maps (`size`), identical files (`dup-content`) and old `updated:` dates (`stale`); all three are opt-in through `[checks]`.
+- Documentation for `shck check`: the profile reference, an example profile, and how agents call it.
