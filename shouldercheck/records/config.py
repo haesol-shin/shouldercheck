@@ -14,8 +14,13 @@ CHECK_NAMES = (
     "orphan",
     "missing-field",
     "alias-dup",
+    "size",
+    "dup-content",
+    "stale",
     "ignore-without-reason",
 )
+# On without input: dead-link, dead-anchor, alias-dup. Orphan and missing-field need a scope or
+# rules to find anything. Size, dup-content and stale are opt-in through [checks].
 DEFAULT_CHECKS = {
     "dead-link": "error",
     "dead-anchor": "error",
@@ -25,6 +30,7 @@ DEFAULT_CHECKS = {
     "ignore-without-reason": "warn",
 }
 FIELD_RULE_KEYS = {"match", "folder_any", "require", "values", "body_lines", "body_lines_max"}
+SIZE_KEYS = {"warn_chars", "high_chars", "max_line_chars", "map_budget_chars", "maps", "exclude"}
 ORPHAN_KEYS = {"scope", "catalog", "exempt", "exempt_names", "unit", "folder_depth", "grace_days"}
 LINK_STYLES = ("markdown", "wiki", "backtick")
 DEFAULT_LINKS = ("markdown", "wiki")
@@ -84,6 +90,23 @@ class OrphanOpts:
 
 
 @dataclass(frozen=True)
+class SizeOpts:
+    warn_chars: int
+    high_chars: int
+    max_line_chars: int
+    map_budget_chars: int
+    maps: Globs
+    exclude: Globs
+
+
+@dataclass(frozen=True)
+class StaleOpts:
+    match: Globs
+    days: int = 14
+    field: str = "updated"
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     path: Path | None
@@ -100,6 +123,8 @@ class Config:
     frozen_manifests: Globs
     orphans: OrphanOpts
     field_rules: tuple[FieldRule, ...]
+    size: SizeOpts
+    stale: StaleOpts
 
     @property
     def display_path(self) -> str | None:
@@ -280,6 +305,30 @@ def _orphans(data: dict, where: str) -> OrphanOpts:
     )
 
 
+def _size(data: dict, where: str) -> SizeOpts:
+    table = _table(data, "size", SIZE_KEYS, where)
+    return SizeOpts(
+        warn_chars=_integer(table, "warn_chars", 30_000, 1, "size", where),
+        high_chars=_integer(table, "high_chars", 50_000, 1, "size", where),
+        max_line_chars=_integer(table, "max_line_chars", 2_000, 1, "size", where),
+        map_budget_chars=_integer(table, "map_budget_chars", 24_000, 1, "size", where),
+        maps=_globs(table, "maps", (), where),
+        exclude=_globs(table, "exclude", (), where),
+    )
+
+
+def _stale(data: dict, where: str) -> StaleOpts:
+    table = _table(data, "stale", {"match", "days", "field"}, where)
+    name = table.get("field", "updated")
+    if not isinstance(name, str) or not name:
+        raise ConfigError(f"{where}: [stale] field must be a key name")
+    return StaleOpts(
+        match=_globs(table, "match", (), where),
+        days=_integer(table, "days", 14, 1, "stale", where),
+        field=name,
+    )
+
+
 def _read(path: Path) -> dict:
     try:
         return tomllib.loads(path.read_text(encoding="utf-8"))
@@ -299,7 +348,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     where = found.name if found else "built-in profile"
     top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
     top |= {"max_read_chars", "links", "fail_on", "format"}
-    allowed = {"checks", "links_opts", "orphans", "fields", "per-path-ignores"}
+    allowed = {"checks", "links_opts", "orphans", "fields", "size", "stale", "per-path-ignores"}
     unknown = sorted(set(data) - top - allowed)
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
@@ -325,6 +374,8 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         frozen_manifests=_globs(data, "frozen_manifests", (), where),
         orphans=_orphans(data, where),
         field_rules=_field_rules(data, where),
+        size=_size(data, where),
+        stale=_stale(data, where),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,

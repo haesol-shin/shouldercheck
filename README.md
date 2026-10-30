@@ -100,6 +100,26 @@ require = ["owner"]
 
 `alias-dup` reads `aliases` from front matter. The same alias on two documents is an `error`; an alias equal to another document's title or file name is a `candidate`. Frozen files own no alias.
 
+`dup-content`, `stale` and `size` are off until `[checks]` turns them on. `size` counts characters, not bytes or words, and reports a document over `warn_chars` as a `candidate`, one over `high_chars` as a `warn`, a line over `max_line_chars`, and a `maps` file over `map_budget_chars`; `exclude` skips verbatim source copies. `dup-content` lists files with identical bytes (over 200 bytes) and leaves the survivor to a person. `stale` reads the `updated:` date of files matching `[stale] match` and lists those older than `days`.
+
+```toml
+[checks]
+size = "warn"
+dup-content = "candidate"
+stale = "candidate"
+
+[size]
+warn_chars = 30000
+high_chars = 50000
+max_line_chars = 2000
+maps = ["index.md"]
+exclude = ["**/sources/**"]
+
+[stale]
+match = ["projects/*.md"]
+days = 14
+```
+
 ## Requirements
 
 - Python 3.11 or later. No runtime dependencies.
