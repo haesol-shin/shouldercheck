@@ -67,6 +67,8 @@ An inline exception skips one check for its own line and the next line:
 
 An exception without a `reason` still applies, but is reported as an `ignore-without-reason` warning. The report counts suppressed findings per check.
 
+Link styles and anchors are set in the profile. `links` picks which styles count (`markdown`, `wiki`, `backtick`; default `markdown` and `wiki`). Under `[links_opts]`, `wiki_resolve` is `stem`, `title` or `path`, and `slug` is `github`, `mkdocs` or `obsidian`; `heading_ids`, `html_ids`, `backtick_dead` and `link_dirs` are off by default. A `[[wiki]]` name that matches two files is a `candidate`, never resolved by guess.
+
 ## Requirements
 
 - Python 3.11 or later. No runtime dependencies.

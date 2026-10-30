@@ -1,22 +1,31 @@
-"""dead-link: an inline link whose target does not exist on disk."""
+"""dead-link: a reference whose target does not exist."""
 
-import posixpath
-import re
-
-from shouldercheck.records.corpus import Corpus
+from shouldercheck.records.corpus import Corpus, Ref
 from shouldercheck.records.findings import Finding
-from shouldercheck.records.markdown import Link
 
-EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,7}$")
 MESSAGES = {"missing": "target not found", "directory": "target is a directory"}
 
 
-def is_label_like(link: Link) -> bool:
-    """A parenthetical remark that parsed as a link, not a path: no slash, no extension."""
-    path = link.target.partition("#")[0]
-    if not link.angled and any(char.isspace() for char in link.target):
-        return True
-    return "/" not in path and not EXTENSION.search(posixpath.basename(path))
+def _finding(corpus: Corpus, path: str, ref: Ref, primary: str) -> Finding | None:
+    kind = ref.resolution.kind
+    if ref.style == "backtick":
+        # Backticks name commands and other repositories' files; a miss is rarely a defect.
+        if kind != "missing" or not corpus.cfg.opts.backtick_dead:
+            return None
+        return Finding(
+            "dead-link", "candidate", path, "backtick path not found", ref.line, ref.target
+        )
+    if ref.style == "wiki" and kind == "ambiguous":
+        names = ", ".join(ref.resolution.candidates[:3])
+        return Finding(
+            "dead-link", "candidate", path, "ambiguous wiki target", ref.line, ref.target, names
+        )
+    if kind not in MESSAGES:
+        return None
+    if ref.label_like:
+        return Finding("dead-link", "candidate", path, "label-like target", ref.line, ref.target)
+    hint = corpus.hint_for(ref.target) if ref.style == "markdown" else None
+    return Finding("dead-link", primary, path, MESSAGES[kind], ref.line, ref.target, hint)
 
 
 def run(corpus: Corpus) -> list[Finding]:
@@ -25,20 +34,8 @@ def run(corpus: Corpus) -> list[Finding]:
         return []
     findings = []
     for doc in corpus.docs.values():
-        for link in doc.parsed.links:
-            res = corpus.resolve(doc.path, link.target)
-            if res.kind not in MESSAGES:
-                continue
-            label = is_label_like(link)
-            findings.append(
-                Finding(
-                    "dead-link",
-                    "candidate" if label else primary,
-                    doc.path,
-                    "label-like target" if label else MESSAGES[res.kind],
-                    line=link.line,
-                    target=link.target,
-                    hint=None if label else corpus.hint_for(link.target),
-                )
-            )
+        for ref in corpus.refs(doc):
+            finding = _finding(corpus, doc.path, ref, primary)
+            if finding:
+                findings.append(finding)
     return findings

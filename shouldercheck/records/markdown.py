@@ -14,6 +14,11 @@ IGNORE = re.compile(
     r'(?:\s+reason\s*=\s*"([^"]*)")?\s*-->'
 )
 UNESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
+HEADING = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+(.*?))?[ \t]*$")
+TRAILING_HASHES = re.compile(r"[ \t]+#+$")
+WIKI = re.compile(r"\[\[([^\[\]\n]+?)\]\]")
+HTML_ID = re.compile(r"""<[A-Za-z][^<>]*?\b(?:id|name)\s*=\s*["']([^"']+)["']""")
+PATHISH = re.compile(r"^[^\s`]{3,300}$")
 
 
 @dataclass(frozen=True)
@@ -30,11 +35,36 @@ class Ignore:
     reason: str | None
 
 
+@dataclass(frozen=True)
+class Heading:
+    line: int
+    text: str
+
+
+@dataclass(frozen=True)
+class Wiki:
+    """`[[name#heading|label]]`; name is empty for a same-file heading link."""
+
+    line: int
+    name: str
+    heading: str | None = None
+
+
+@dataclass(frozen=True)
+class CodeSpan:
+    line: int
+    text: str
+
+
 @dataclass
 class ParsedDoc:
     body_start: int = 0
     links: list[Link] = field(default_factory=list)
     ignores: list[Ignore] = field(default_factory=list)
+    headings: list[Heading] = field(default_factory=list)
+    wikis: list[Wiki] = field(default_factory=list)
+    code_spans: list[CodeSpan] = field(default_factory=list)
+    html_ids: set[str] = field(default_factory=set)
 
 
 def split_lines(text: str) -> list[str]:
@@ -221,11 +251,35 @@ def find_ignores(text: str, line_no: int) -> list[Ignore]:
     return found
 
 
+def find_headings(text: str, line_no: int) -> list[Heading]:
+    match = HEADING.match(text)
+    if not match:
+        return []
+    return [Heading(line_no, TRAILING_HASHES.sub("", match.group(1) or "").strip())]
+
+
+def find_wikis(text: str, line_no: int) -> list[Wiki]:
+    found = []
+    for match in WIKI.finditer(text):
+        inner = match.group(1).replace("\\|", "|").partition("|")[0]
+        name, has_heading, heading = inner.partition("#")
+        name = name.strip()
+        if name or has_heading:
+            found.append(Wiki(line_no, name, heading.strip() if has_heading else None))
+    return found
+
+
 def parse(text: str) -> ParsedDoc:
     lines = split_lines(text)
     doc = ParsedDoc(body_start=body_start(lines))
     for line_no, line in prose_lines(lines, doc.body_start):
-        masked, _ = mask_inline_code(line)
+        masked, spans = mask_inline_code(line)
         doc.links.extend(find_links(masked, line_no))
         doc.ignores.extend(find_ignores(masked, line_no))
+        doc.headings.extend(find_headings(line, line_no))
+        doc.wikis.extend(find_wikis(masked, line_no))
+        doc.html_ids.update(HTML_ID.findall(masked))
+        doc.code_spans.extend(
+            CodeSpan(line_no, span.strip()) for span in spans if PATHISH.match(span.strip())
+        )
     return doc
