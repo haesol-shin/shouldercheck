@@ -8,8 +8,13 @@ from shouldercheck.records.findings import SEVERITIES
 from shouldercheck.records.globs import Globs
 
 CONFIG_NAMES = ("shck.toml", ".shck.toml")
-CHECK_NAMES = ("dead-link", "ignore-without-reason")
-DEFAULT_CHECKS = {"dead-link": "error", "ignore-without-reason": "warn"}
+CHECK_NAMES = ("dead-link", "dead-anchor", "ignore-without-reason")
+DEFAULT_CHECKS = {"dead-link": "error", "dead-anchor": "error", "ignore-without-reason": "warn"}
+LINK_STYLES = ("markdown", "wiki", "backtick")
+DEFAULT_LINKS = ("markdown", "wiki")
+WIKI_RESOLVE = ("stem", "title", "path")
+SLUGS = ("github", "mkdocs", "obsidian")
+LINK_OPT_KEYS = {"wiki_resolve", "slug", "heading_ids", "html_ids", "backtick_dead", "link_dirs"}
 DEFAULT_INCLUDE = ("**/*.md",)
 DEFAULT_EXCLUDE = (".*/**", "node_modules/**", "**/*sfconflict*")
 FAIL_ON = (*SEVERITIES, "never")
@@ -29,6 +34,16 @@ class PathIgnore:
 
 
 @dataclass(frozen=True)
+class LinkOpts:
+    wiki_resolve: str = "stem"
+    slug: str = "github"
+    heading_ids: bool = False
+    html_ids: bool = False
+    backtick_dead: bool = False
+    link_dirs: bool = False
+
+
+@dataclass(frozen=True)
 class Config:
     root: Path
     path: Path | None
@@ -36,7 +51,8 @@ class Config:
     exclude: Globs
     frozen: Globs
     max_read_chars: int
-    link_dirs: bool
+    links: tuple[str, ...]
+    opts: LinkOpts
     checks: dict[str, str]
     ignores: tuple[PathIgnore, ...]
     fail_on: str
@@ -95,6 +111,34 @@ def _checks(data: dict, where: str) -> dict[str, str]:
     return levels
 
 
+def _link_styles(data: dict, where: str) -> tuple[str, ...]:
+    styles = _strings(data, "links", DEFAULT_LINKS, where)
+    for style in styles:
+        _choice(style, LINK_STYLES, "links entry", where)
+    return styles
+
+
+def _flag(table: dict, key: str, where: str) -> bool:
+    value = table.get(key, False)
+    if not isinstance(value, bool):
+        raise ConfigError(f"{where}: [links_opts] {key} must be true or false")
+    return value
+
+
+def _link_opts(data: dict, where: str) -> LinkOpts:
+    table = _table(data, "links_opts", LINK_OPT_KEYS, where)
+    return LinkOpts(
+        wiki_resolve=_choice(
+            table.get("wiki_resolve", "stem"), WIKI_RESOLVE, "wiki_resolve", where
+        ),
+        slug=_choice(table.get("slug", "github"), SLUGS, "slug", where),
+        heading_ids=_flag(table, "heading_ids", where),
+        html_ids=_flag(table, "html_ids", where),
+        backtick_dead=_flag(table, "backtick_dead", where),
+        link_dirs=_flag(table, "link_dirs", where),
+    )
+
+
 def _ignores(data: dict, where: str) -> tuple[PathIgnore, ...]:
     entries = data.get("per-path-ignores", [])
     if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
@@ -147,7 +191,8 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     found = config_path.resolve() if config_path else discover(start)
     data = _read(found) if found else {}
     where = found.name if found else "built-in profile"
-    top = {"version", "root", "include", "exclude", "frozen", "max_read_chars", "fail_on", "format"}
+    top = {"version", "root", "include", "exclude", "frozen", "max_read_chars", "links"}
+    top |= {"fail_on", "format"}
     unknown = sorted(set(data) - top - {"checks", "links_opts", "per-path-ignores"})
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
@@ -160,7 +205,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         root = start
     else:
         root = ((found.parent if found else cwd) / root_value).resolve()
-    opts = _table(data, "links_opts", {"link_dirs"}, where)
+    options = _link_opts(data, where)
     max_read = data.get("max_read_chars", 2_000_000)
     if not isinstance(max_read, int) or isinstance(max_read, bool) or max_read < 1:
         raise ConfigError(f"{where}: max_read_chars must be a positive integer")
@@ -171,7 +216,8 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         exclude=_globs(data, "exclude", DEFAULT_EXCLUDE, where),
         frozen=_globs(data, "frozen", (), where),
         max_read_chars=max_read,
-        link_dirs=bool(opts.get("link_dirs", False)),
+        links=_link_styles(data, where),
+        opts=options,
         checks=_checks(data, where),
         ignores=_ignores(data, where),
         fail_on=_choice(data.get("fail_on", "never"), FAIL_ON, "fail_on", where),
