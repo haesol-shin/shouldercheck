@@ -6,3 +6,4 @@ All notable changes to shouldercheck are documented here. The format is based on
 
 ### Added
 - Project skeleton: documentation, CI, and issue and pull request templates.
+- `shck check`: read-only report of dead links in a Markdown record base, with a TOML profile, frozen paths, per-path and inline ignores that require a reason, and text or JSON output.
