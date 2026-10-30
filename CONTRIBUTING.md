@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for your interest in shouldercheck. The project is experimental, so the rules are short.
+Thank you for your interest in shouldercheck. The rules are short.
 
 ## Before you start
 
