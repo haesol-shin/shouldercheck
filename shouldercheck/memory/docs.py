@@ -133,7 +133,9 @@ def _links(fields: Fields, settings: FindSettings) -> list[RawLink]:
     found: list[RawLink] = []
     regex = settings.relations.regex
     for _, line in markdown.prose_lines(fields.lines, fields.start):
-        clean = markdown.mask_inline_code(line)[0]
+        if "](" not in line:
+            continue
+        clean = markdown.mask_inline_code(line)[0] if "`" in line else line
         for match in LINK.finditer(clean):
             target = (match.group(2) or match.group(3)).strip()
             if not target or EXTERNAL.match(target):

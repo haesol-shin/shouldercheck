@@ -8,12 +8,22 @@ from shouldercheck.records.config import Config, load_config
 
 
 @pytest.fixture(autouse=True)
-def private_dirs(tmp_path_factory, monkeypatch):
+def private_dirs(tmp_path, monkeypatch):
     """No test reads or writes the user's cache or query log."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("cache")))
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("state")))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
     monkeypatch.delenv("SHCK_CALLER", raising=False)
     monkeypatch.delenv("SHCK_SESSION", raising=False)
+
+
+@pytest.fixture
+def cache_home(tmp_path: Path) -> Path:
+    return tmp_path / "xdg-cache"
+
+
+@pytest.fixture
+def state_home(tmp_path: Path) -> Path:
+    return tmp_path / "xdg-state"
 
 
 @pytest.fixture

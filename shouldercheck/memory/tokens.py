@@ -3,6 +3,7 @@
 import re
 import unicodedata
 from collections.abc import Iterable
+from functools import lru_cache
 
 from shouldercheck.memory.defaults import SNIPPET_CHARS
 
@@ -29,17 +30,25 @@ LONG_DIGITS = re.compile(r"\d(?:-?\d){9,}")
 def tokenize(text: str) -> list[str]:
     tokens: list[str] = []
     for chunk in unicodedata.normalize("NFC", text).lower().split():
-        runs = TOKEN.findall(chunk)
-        for run in runs:
-            if not LATIN.match(run[0]):
-                if len(run) >= 2:
-                    tokens += [run[i : i + 2] for i in range(len(run) - 1)]
-                elif len(runs) == 1:
-                    tokens.append(run)
-            else:
-                plural = len(run) > 3 and run.endswith("s") and not run.endswith("ss")
-                tokens.append(run[:-1] if plural else run)
+        tokens += _chunk_tokens(chunk)
     return tokens
+
+
+@lru_cache(maxsize=100_000)
+def _chunk_tokens(chunk: str) -> tuple[str, ...]:
+    """Tokens of one whitespace-free chunk; words repeat a lot, so a build reuses most of them."""
+    tokens: list[str] = []
+    runs = TOKEN.findall(chunk)
+    for run in runs:
+        if not LATIN.match(run[0]):
+            if len(run) >= 2:
+                tokens += [run[i : i + 2] for i in range(len(run) - 1)]
+            elif len(runs) == 1:
+                tokens.append(run)
+        else:
+            plural = len(run) > 3 and run.endswith("s") and not run.endswith("ss")
+            tokens.append(run[:-1] if plural else run)
+    return tuple(tokens)
 
 
 def norm(text: str) -> str:

@@ -148,7 +148,7 @@ def test_limit(tree):
 
 def test_cli_json_text_and_exit_codes(tree, capsys):
     root = tree({"a.md": "widget\n"})
-    assert main(["find", "widget", "--root", str(root), "--format", "json"]) == 0
+    assert main(["find", "widget", "--root", str(root), "--format", "json", "--no-cache"]) == 0
     data = json.loads(capsys.readouterr().out)
     assert data["schema_version"] == 1 and data["hits"][0]["path"] == "a.md"
     assert data["index"]["state"] == "memory"
