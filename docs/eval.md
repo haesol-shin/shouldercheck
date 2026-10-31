@@ -117,3 +117,20 @@ When `expect` is set, only a candidate that matches it can make a fact `present`
 `--sample 30 --seed 20261101` orders fact ids by `sha256(seed:id)` and prints template lines `{"id", "shck", "owner": null, "note": ""}`. The owner (not an agent) fills `owner` with `present`, `weak`, `absent` or `invalid-fact` and saves the file beside the facts. `--audit FILE` then reports the agreement of shck's status with the owner's (n, agreements, Wilson interval) and the extractor's precision: the share of audited facts that are not `invalid-fact`. Junk and duplicate facts count as write-side harm.
 
 Exit codes: `0`, `2` usage or profile error, `3` unreadable or invalid facts or audit file, or a missing snapshot.
+
+# `shck report`
+
+`shck report` turns eval runs, gaps runs, the ledger, audit files and the query log into counts per stage. It prints and never writes.
+
+```sh
+shck report [--runs DIR|FILES...] [--ledger FILE] [--audit FILE...] [--format json|text]
+```
+
+`--runs` and `--ledger` default to `[eval] dir` (`runs/` and `ledger.jsonl`). The default format is `text`. A run file that cannot be read exits `3`; JSON files that are not eval or gaps runs are skipped.
+
+Every share is `n out of N` with a Wilson 95% interval. Below `N = 10` only the counts print. Every number carries its set version, tree (live or commit) and finder version. There is no composite score.
+
+- **Failure funnel.** From the ledger labels `first_failing_stage`: failures at capture, write, trigger, retrieve and use. Each stage's denominator is the cases that passed the earlier stages, so a stage's rate is not diluted by earlier failures. Example: `retrieve: 8 of 12 (Wilson 0.39 to 0.86)`. Ambiguous cases are left out and counted. Stage use (the answer ignored a found record) comes from ledger labels only: shck has no model.
+- **Retrieve.** Hit@3 of each eval run with its lexical-overlap buckets.
+- **Write recall.** From each gaps run: `present` out of all facts, with the weak and absent counts. With `--audit`, the owner's agreement and the extractor's precision.
+- **Trigger.** From the query log: the share of dated ledger cases with at least one logged `find` on their day, and the share of logged calls whose caller is `unknown`, so a missing `--caller` shows as a gap. Only `shck find` calls are logged; see [Query log](find.md#query-log).

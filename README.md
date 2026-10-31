@@ -38,6 +38,7 @@ shck find    # find earlier records about a topic, ranked, with linked neighbour
 shck index   # generate a capped root map and per-section indexes
 shck eval    # measure where the expected record lands for each case
 shck gaps    # list facts from a source that have no record
+shck report  # count failures per stage with intervals
 ```
 
 `shck check` reads a folder of Markdown notes and lists candidates with paths. It never edits, moves or deletes anything, and it does not decide what to fix. A TOML profile (`shck.toml` or `.shck.toml`) sets the scope, the checks and the exceptions; without one, a built-in profile applies.
@@ -52,7 +53,7 @@ The memory commands help an agent find a record before it acts, and show where a
 
 - `shck find` ranks records by weighted fields, lists linked neighbours, can search transcripts at a low rank, and appends each call to a private query log: [docs/find.md](docs/find.md).
 - `shck index` writes the root map and, where a section overflows, its own `index.md`; it never edits a hand-written file: [docs/index.md](docs/index.md).
-- `shck eval` and `shck gaps` measure retrieval and write-side recall, in plain code with no model: [docs/eval.md](docs/eval.md).
+- `shck eval`, `shck gaps` and `shck report` measure retrieval, write-side recall and the failure funnel, in plain code with no model: [docs/eval.md](docs/eval.md).
 
 ## Requirements
 

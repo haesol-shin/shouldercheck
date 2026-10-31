@@ -27,6 +27,8 @@ class Case:
     source_path: str | None = None
     labels: dict[str, str] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+    ambiguous: bool = False
+    date: str | None = None
 
     @property
     def abstain(self) -> bool:
@@ -81,6 +83,8 @@ def _case(row: dict, kind: str, where: str) -> Case:
         must_pass=row.get("must_pass") is True,
         source_path=_text(row, "source_path", where),
         labels=_labels(row, where),
+        ambiguous=row.get("ambiguous") is True,
+        date=_text(row, "date", where),
         tags=[str(t) for t in row.get("tags", [])] if isinstance(row.get("tags", []), list) else [],
     )
 

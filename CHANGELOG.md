@@ -19,3 +19,4 @@ All notable changes to shouldercheck are documented here. The format is based on
 - `shck index` generates a capped root map with per-section caps and a fuller `index.md` for each section that overflows, marks every generated file, refuses to touch a hand-written one, and supports `--check`, `--diff` and a one-time `--adopt`.
 - `shck eval` measures retrieval on a failure ledger and a probe set (Hit@k, MRR, abstention, lexical-overlap buckets) on live trees or git snapshots, `eval compare` applies an exact McNemar test, and `--gate` fails when a pinned case regresses.
 - `shck gaps` checks facts extracted from a source against the records by string coverage (`present`, `weak`, `absent`), prints a seeded audit sample for the owner, and reports agreement with that audit.
+- `shck report` counts failures per stage from the ledger, eval and gaps runs, audits and the query log, with Wilson intervals and no composite score.
