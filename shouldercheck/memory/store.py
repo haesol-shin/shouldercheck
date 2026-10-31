@@ -15,7 +15,7 @@ from operator import itemgetter
 from pathlib import Path
 
 from shouldercheck.memory import defaults
-from shouldercheck.memory.docs import Unit, decode, is_generated, record_unit
+from shouldercheck.memory.docs import Unit, decode, is_generated, record_unit, tier_units
 from shouldercheck.memory.settings import RECORDS, FindSettings
 from shouldercheck.records.config import Config
 from shouldercheck.records.corpus import Corpus
@@ -377,15 +377,23 @@ def _read_units(cfg: Config, settings: FindSettings, rel: str, tier: str) -> lis
         text = decode((cfg.root / rel).read_bytes())
     except OSError:
         return []
-    return [] if is_generated(text) else [record_unit(rel, text, settings)]
+    if tier == RECORDS:
+        return [] if is_generated(text) else [record_unit(rel, text, settings)]
+    spec = settings.tier(tier)
+    return tier_units(rel, text, spec, settings) if spec else []
 
 
 def tier_selector(cfg: Config, settings: FindSettings) -> Callable[[str], str | None]:
-    """Which tier a file belongs to: records, or none."""
+    """Which tier a file belongs to; the top-level scope wins over a tier's globs."""
 
     def select(rel: str) -> str | None:
         if cfg.include(rel) and not cfg.exclude(rel):
             return RECORDS
+        if cfg.exclude(rel):
+            return None
+        for tier in settings.tiers:
+            if tier.include(rel) and not tier.exclude(rel):
+                return tier.name
         return None
 
     return select

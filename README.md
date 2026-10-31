@@ -47,7 +47,7 @@ Profile keys, checks, exceptions, output, exit codes and how agents call it: [do
 
 The memory commands help an agent find a record before it acts:
 
-- `shck find` ranks records by weighted fields, lists linked neighbours: [docs/find.md](docs/find.md).
+- `shck find` ranks records by weighted fields, lists linked neighbours, can search transcripts at a low rank: [docs/find.md](docs/find.md).
 
 ## Requirements
 

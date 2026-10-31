@@ -141,9 +141,10 @@ def test_long_line_window_starts_near_the_match(tree):
     assert "needle" in find(root, "needle").hits[0]["snippet"]
 
 
-def test_limit(tree):
+def test_limit_and_scope(tree):
     root = tree({f"n{i}.md": "word\n" for i in range(5)})
     assert len(find(root, "word", limit=2).hits) == 2
+    assert find(root, "word", scope="transcript").hits == []
 
 
 def test_cli_json_text_and_exit_codes(tree, capsys):
