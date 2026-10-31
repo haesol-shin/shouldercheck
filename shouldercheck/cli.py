@@ -8,6 +8,8 @@ from pathlib import Path
 
 from shouldercheck import __version__
 from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
+from shouldercheck.memory.qlog import identify, log_query
+from shouldercheck.memory.settings import find_settings
 from shouldercheck.records.checks import CHECKS
 from shouldercheck.records.config import FAIL_ON, FORMATS, ConfigError, load_config
 from shouldercheck.records.report import run_check
@@ -66,6 +68,9 @@ def _add_find(sub: "argparse._SubParsersAction") -> None:
     find.add_argument("--format", choices=FORMATS, help="output format (default: from profile)")
     find.add_argument("--scope", choices=SCOPES, default="all", help="records, transcript or all")
     find.add_argument("--neighbors", type=int, help="links shown per direction (default: profile)")
+    find.add_argument("--caller", help="who is asking, e.g. hermes or omp (default: $SHCK_CALLER)")
+    find.add_argument("--session", help="session id for the query log (default: $SHCK_SESSION)")
+    find.add_argument("--no-log", action="store_true", help="do not append to the query log")
     find.add_argument("--no-cache", action="store_true", help="build the index in memory only")
     _add_root_config(find)
 
@@ -126,6 +131,17 @@ def _find(args: argparse.Namespace) -> int:
     except InputError as exc:
         print(f"shck: {exc}", file=sys.stderr)
         return 3
+    result.caller = identify(args.caller, args.session)[0]
+    if not args.no_log:
+        log_query(
+            cfg,
+            find_settings(cfg),
+            result,
+            caller=args.caller,
+            session=args.session,
+            scope=args.scope,
+            limit=max(args.limit, 0),
+        )
     if (args.format or cfg.format) == "json":
         print(json.dumps(result.to_json(), ensure_ascii=False, indent=2))
     else:

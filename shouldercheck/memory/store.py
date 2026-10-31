@@ -383,17 +383,20 @@ def _read_units(cfg: Config, settings: FindSettings, rel: str, tier: str) -> lis
     return tier_units(rel, text, spec, settings) if spec else []
 
 
-def tier_selector(cfg: Config, settings: FindSettings) -> Callable[[str], str | None]:
-    """Which tier a file belongs to; the top-level scope wins over a tier's globs."""
+def tier_selector(cfg: Config, settings: FindSettings, scan: Scan) -> Callable[[str], str | None]:
+    """Which tier a file belongs to; the top-level scope wins over a tier's globs.
+
+    The scan already decided the records, so only the other files are matched against tiers.
+    """
+    records = set(scan.paths)
 
     def select(rel: str) -> str | None:
-        if cfg.include(rel) and not cfg.exclude(rel):
+        if rel in records:
             return RECORDS
-        if cfg.exclude(rel):
-            return None
         for tier in settings.tiers:
             if tier.include(rel) and not tier.exclude(rel):
-                return tier.name
+                # Records and excluded files never reach a tier.
+                return None if cfg.exclude(rel) or cfg.include(rel) else tier.name
         return None
 
     return select

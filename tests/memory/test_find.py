@@ -166,3 +166,20 @@ def test_cli_json_text_and_exit_codes(tree, capsys):
 def test_check_still_accepts_a_find_table(tree):
     root = tree({"a.md": "x\n", "shck.toml": "[find]\nk1 = 1.5\n"})
     assert main(["check", "--root", str(root)]) == 0
+
+
+def test_snippet_picks_the_line_with_most_query_terms_and_the_first_on_a_tie(tree):
+    body = (
+        "# A\n\nreviews only here\nreview checklist and launch plan\nlaunch plan again\n"
+        "review checklist and launch plan\n"
+    )
+    hit = find(tree({"a.md": body}), "review launch plan").hits[0]
+    assert hit["snippet"] == "review checklist and launch plan"
+    assert "body" in hit["matched"] and "title" not in hit["matched"]
+
+
+def test_a_substring_that_is_not_a_token_does_not_match(tree):
+    root = tree({"a.md": "# Alpha\n\nmain improve\n", "b.md": "pr\n"})
+    hits = find(root, "pr").hits
+    assert [h["path"] for h in hits] == ["b.md"]
+    assert hits[0]["matched"] == ["body"]
