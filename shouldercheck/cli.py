@@ -7,10 +7,14 @@ import sys
 from pathlib import Path
 
 from shouldercheck import __version__
+from shouldercheck.memory.cases import CaseError
+from shouldercheck.memory.evalcmd import render_compare_text, run_eval_command
+from shouldercheck.memory.evalrun import render_run_text
 from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
 from shouldercheck.memory.indexrun import run_index
 from shouldercheck.memory.qlog import identify, log_query
 from shouldercheck.memory.settings import find_settings
+from shouldercheck.memory.snapshot import SnapshotError
 from shouldercheck.records.checks import CHECKS
 from shouldercheck.records.config import FAIL_ON, FORMATS, ConfigError, load_config
 from shouldercheck.records.report import run_check
@@ -49,6 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_find(sub)
     _add_index(sub)
+    _add_eval(sub)
     return parser
 
 
@@ -88,6 +93,27 @@ def _add_index(sub: "argparse._SubParsersAction") -> None:
     index.add_argument("--adopt", action="store_true", help="take over an unmarked map file once")
     index.add_argument("--format", choices=FORMATS, help="output format (default: text)")
     _add_root_config(index)
+
+
+def _add_eval(sub: "argparse._SubParsersAction") -> None:
+    ev = sub.add_parser(
+        "eval",
+        help="measure where the expected record lands for each case (prints, never writes)",
+        description="Run a case file, or `eval compare A.json B.json` to pair two runs.",
+    )
+    ev.add_argument("operands", nargs="*", metavar="compare A.json B.json")
+    ev.add_argument("--set", dest="case_set", default="ledger", help="ledger, probes or a file")
+    ev.add_argument("--snapshot", help="git commit to search for every case")
+    ev.add_argument("--git-dir", type=Path, help="history repository for snapshots")
+    ev.add_argument("--live", action="store_true", help="search the live tree, ignore snapshots")
+    ev.add_argument("--k", type=int, default=3, help="hit rank for losses and wins (default: 3)")
+    ev.add_argument("--baseline", type=Path, help="earlier eval run (JSON)")
+    ev.add_argument(
+        "--abstain-below", type=float, help="top score under which no record is claimed"
+    )
+    ev.add_argument("--gate", action="store_true", help="exit 1 when a must_pass case regresses")
+    ev.add_argument("--format", choices=FORMATS, help="output format (default: json)")
+    _add_root_config(ev)
 
 
 def _load_baseline(path: Path) -> set[str]:
@@ -181,6 +207,27 @@ def _index(args: argparse.Namespace) -> int:
     return report.exit_code
 
 
+def _eval(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config(args.config, args.root, Path.cwd())
+        run = run_eval_command(cfg, args)
+    except ConfigError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 2
+    except (InputError, CaseError, SnapshotError) as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 3
+    fmt = args.format or ("text" if run["kind"] == "compare" else "json")
+    if fmt == "json":
+        print(json.dumps(run, ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.write(
+            render_compare_text(run) if run["kind"] == "compare" else render_run_text(run)
+        )
+    gate = run.get("gate")
+    return 1 if gate and not gate["passed"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -190,5 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         return _find(args)
     if args.command == "index":
         return _index(args)
+    if args.command == "eval":
+        return _eval(args)
     parser.print_help()
     return 0

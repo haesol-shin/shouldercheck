@@ -383,3 +383,39 @@ def index_settings(cfg: Config) -> IndexSettings:
         exclude=_globs(_strings(table.get("exclude", []), "exclude", where), where),
         sections=sections,
     )
+
+
+EVAL_KEYS = {"dir", "git_dir", "k", "rank_cap", "abstain_below"}
+DEFAULT_K = (1, 3, 10)
+RANK_CAP = 50
+
+
+@dataclass(frozen=True)
+class EvalSettings:
+    dir: str | None
+    git_dir: str | None
+    k: tuple[int, ...]
+    rank_cap: int
+    abstain_below: float | None
+
+
+def eval_settings(cfg: Config) -> EvalSettings:
+    where = _where(cfg)
+    table = _table(cfg.eval, "eval", EVAL_KEYS, where)
+    ks = table.get("k", list(DEFAULT_K))
+    if (
+        not isinstance(ks, list)
+        or not ks
+        or not all(isinstance(k, int) and not isinstance(k, bool) and k >= 1 for k in ks)
+    ):
+        raise ConfigError(f"{where}: [eval] k must be a list of positive integers")
+    below = table.get("abstain_below")
+    if below is not None and (isinstance(below, bool) or not isinstance(below, int | float)):
+        raise ConfigError(f"{where}: [eval] abstain_below must be a number")
+    return EvalSettings(
+        dir=_optional_path(table, "dir", where),
+        git_dir=_optional_path(table, "git_dir", where),
+        k=tuple(sorted(set(ks))),
+        rank_cap=_integer(table, "rank_cap", RANK_CAP, 1, where),
+        abstain_below=below,
+    )
