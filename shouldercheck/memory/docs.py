@@ -117,6 +117,10 @@ def read_fields(rel: str, text: str) -> Fields:
     return Fields(values, title, summary, aliases, tags, str(status), meta, lines, start)
 
 
+def title_of(rel: str, text: str) -> str:
+    return read_fields(rel, text).title
+
+
 def _names(rel: str, title: str, aliases: list[str]) -> list[tuple[str, int]]:
     """Exact-name keys. Kind 0: an alias or a title that is not just the file name. Kind 1: the
     file name, or a title that only repeats it."""

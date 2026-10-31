@@ -377,8 +377,10 @@ def _read_units(cfg: Config, settings: FindSettings, rel: str, tier: str) -> lis
         text = decode((cfg.root / rel).read_bytes())
     except OSError:
         return []
+    if is_generated(text):
+        return []
     if tier == RECORDS:
-        return [] if is_generated(text) else [record_unit(rel, text, settings)]
+        return [record_unit(rel, text, settings)]
     spec = settings.tier(tier)
     return tier_units(rel, text, spec, settings) if spec else []
 

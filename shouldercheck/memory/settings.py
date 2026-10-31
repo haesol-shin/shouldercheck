@@ -1,5 +1,6 @@
 """Typed, validated view of the `[find]` profile table."""
 
+import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -273,3 +274,112 @@ def resolve_dir(configured: str | None, cfg: Config, default: Path) -> Path:
         return default
     base = cfg.path.parent if cfg.path else cfg.root
     return (base / Path(configured).expanduser()).resolve()
+
+
+INDEX_KEYS = {"map", "title", "header", "top_title", "top_files", "exclude", "sections"}
+SECTION_KEYS = {"id", "title", "root", "mode", "cap", "order", "index", "note"}
+MODES = ("tree", "recent", "count")
+ORDERS = ("path", "name-desc", "mtime-desc")
+SECTION_INDEX = ("folder", "none")
+DEFAULT_CAP = {"tree": 200, "recent": 20, "count": 200}
+
+
+@dataclass(frozen=True)
+class Section:
+    id: str
+    title: str
+    root: str
+    mode: str
+    cap: int
+    order: str
+    index: str
+    note: str
+
+
+@dataclass(frozen=True)
+class IndexSettings:
+    map: str
+    title: str
+    header: tuple[str, ...]
+    top_title: str
+    top_files: tuple[str, ...]
+    exclude: Globs
+    sections: tuple[Section, ...]
+
+
+def _relative_folder(value: object, key: str, where: str) -> str:
+    if not isinstance(value, str) or not value.strip("/"):
+        raise ConfigError(f"{where}: {key} must be a folder relative to the root")
+    folder = posixpath.normpath(value.strip("/"))
+    if folder == ".." or folder.startswith("../") or folder == ".":
+        raise ConfigError(f"{where}: {key} {value!r} leaves the record base")
+    return folder
+
+
+def _text(table: dict, key: str, default: str, where: str) -> str:
+    value = table.get(key, default)
+    if not isinstance(value, str):
+        raise ConfigError(f"{where}: {key} must be a string")
+    return value
+
+
+def _section(entry: object, where: str) -> Section:
+    entry = _table(entry, "index.sections", SECTION_KEYS, where)
+    ident = entry.get("id")
+    if not isinstance(ident, str) or not ident:
+        raise ConfigError(f"{where}: [[index.sections]] needs an id")
+    here = f"{where}: section {ident}"
+    mode = entry.get("mode", "tree")
+    if mode not in MODES:
+        raise ConfigError(f"{here}: mode must be one of {', '.join(MODES)}")
+    order = entry.get("order", "mtime-desc" if mode == "recent" else "path")
+    if order not in ORDERS or (order == "mtime-desc" and mode != "recent"):
+        raise ConfigError(f"{here}: order {order!r} is not allowed for mode {mode}")
+    index = entry.get("index", "folder" if mode == "tree" else "none")
+    if index not in SECTION_INDEX:
+        raise ConfigError(f"{here}: index must be one of {', '.join(SECTION_INDEX)}")
+    root = _relative_folder(entry.get("root"), "root", here)
+    return Section(
+        id=ident,
+        title=_text(entry, "title", ident, here),
+        root=root,
+        mode=mode,
+        cap=_integer(entry, "cap", DEFAULT_CAP[mode], 1, here),
+        order=order,
+        index=index,
+        note=_text(entry, "note", "", here),
+    )
+
+
+def _sections(table: dict, where: str) -> tuple[Section, ...]:
+    entries = table.get("sections", [])
+    if not isinstance(entries, list):
+        raise ConfigError(f"{where}: [[index.sections]] must be an array of tables")
+    sections = tuple(_section(entry, where) for entry in entries)
+    for name, values in (("id", [s.id for s in sections]), ("root", [s.root for s in sections])):
+        repeated = sorted({v for v in values if values.count(v) > 1})
+        if repeated:
+            raise ConfigError(f"{where}: [[index.sections]] repeats {name} {', '.join(repeated)}")
+    return sections
+
+
+def index_settings(cfg: Config) -> IndexSettings:
+    where = _where(cfg)
+    table = _table(cfg.index, "index", INDEX_KEYS, where)
+    header = _strings(table.get("header", []), "header", where)
+    top = _strings(table.get("top_files", []), "top_files", where)
+    sections = _sections(table, where)
+    if not sections:
+        raise ConfigError(
+            f"{where}: no [[index.sections]]; add one, for example "
+            'id = "notes", root = "notes", mode = "tree"'
+        )
+    return IndexSettings(
+        map=_relative_folder(table.get("map", "index.md"), "map", where),
+        title=_text(table, "title", "Index", where),
+        header=header,
+        top_title=_text(table, "top_title", "Top", where),
+        top_files=top,
+        exclude=_globs(_strings(table.get("exclude", []), "exclude", where), where),
+        sections=sections,
+    )

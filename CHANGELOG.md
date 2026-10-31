@@ -16,3 +16,4 @@ All notable changes to shouldercheck are documented here. The format is based on
 - `shck find` keeps a derived index outside the record base, re-parses only files whose size or time changed, and falls back to memory when the index is locked or unusable; `--no-cache` skips it.
 - `shck find` can search transcript files at a low rank through `[[find.tiers]]`: entries are split at a profile pattern, scored apart from the records, and listed after them, never above.
 - `shck find` appends every call to a private query log outside the record base (`--caller`, `SHCK_CALLER`, `--session`, `--no-log`); queries are masked, snippets never logged, and day files older than 90 days are compressed in place, never deleted.
+- `shck index` generates a capped root map with per-section caps and a fuller `index.md` for each section that overflows, marks every generated file, refuses to touch a hand-written one, and supports `--check`, `--diff` and a one-time `--adopt`.

@@ -35,6 +35,7 @@ shck links   # check and update links between notes
 ```sh
 shck check   # report broken structure in a Markdown record base (read-only)
 shck find    # find earlier records about a topic, ranked, with linked neighbours
+shck index   # generate a capped root map and per-section indexes
 ```
 
 `shck check` reads a folder of Markdown notes and lists candidates with paths. It never edits, moves or deletes anything, and it does not decide what to fix. A TOML profile (`shck.toml` or `.shck.toml`) sets the scope, the checks and the exceptions; without one, a built-in profile applies.
@@ -48,6 +49,7 @@ Profile keys, checks, exceptions, output, exit codes and how agents call it: [do
 The memory commands help an agent find a record before it acts:
 
 - `shck find` ranks records by weighted fields, lists linked neighbours, can search transcripts at a low rank, and appends each call to a private query log: [docs/find.md](docs/find.md).
+- `shck index` writes the root map and, where a section overflows, its own `index.md`; it never edits a hand-written file: [docs/index.md](docs/index.md).
 
 ## Requirements
 
