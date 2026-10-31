@@ -8,6 +8,7 @@ from pathlib import Path
 
 from shouldercheck import __version__
 from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
+from shouldercheck.memory.indexrun import run_index
 from shouldercheck.memory.qlog import identify, log_query
 from shouldercheck.memory.settings import find_settings
 from shouldercheck.records.checks import CHECKS
@@ -47,6 +48,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--paths", nargs="+", metavar="PATH", help="list findings only for these files or folders"
     )
     _add_find(sub)
+    _add_index(sub)
     return parser
 
 
@@ -73,6 +75,19 @@ def _add_find(sub: "argparse._SubParsersAction") -> None:
     find.add_argument("--no-log", action="store_true", help="do not append to the query log")
     find.add_argument("--no-cache", action="store_true", help="build the index in memory only")
     _add_root_config(find)
+
+
+def _add_index(sub: "argparse._SubParsersAction") -> None:
+    index = sub.add_parser(
+        "index",
+        help="generate the root map and per-section indexes (writes only generated files)",
+        description="Write generated files that differ. Never edits a hand-written file.",
+    )
+    index.add_argument("--check", action="store_true", help="write nothing; exit 1 if stale")
+    index.add_argument("--diff", action="store_true", help="print the unified diff")
+    index.add_argument("--adopt", action="store_true", help="take over an unmarked map file once")
+    index.add_argument("--format", choices=FORMATS, help="output format (default: text)")
+    _add_root_config(index)
 
 
 def _load_baseline(path: Path) -> set[str]:
@@ -149,6 +164,23 @@ def _find(args: argparse.Namespace) -> int:
     return 0
 
 
+def _index(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config(args.config, args.root, Path.cwd())
+        report = run_index(cfg, check=args.check, diff=args.diff, adopt=args.adopt)
+    except ConfigError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 2
+    except InputError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 3
+    if (args.format or cfg.format) == "json":
+        print(json.dumps(report.to_json(), ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.write(report.render_text())
+    return report.exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -156,5 +188,7 @@ def main(argv: list[str] | None = None) -> int:
         return _check(args)
     if args.command == "find":
         return _find(args)
+    if args.command == "index":
+        return _index(args)
     parser.print_help()
     return 0

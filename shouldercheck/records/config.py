@@ -126,6 +126,7 @@ class Config:
     size: SizeOpts
     stale: StaleOpts
     find: dict = field(default_factory=dict)
+    index: dict = field(default_factory=dict)
 
     @property
     def display_path(self) -> str | None:
@@ -350,7 +351,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
     top |= {"max_read_chars", "links", "fail_on", "format"}
     allowed = {"checks", "links_opts", "orphans", "fields", "size", "stale", "per-path-ignores"}
-    allowed |= {"find"}
+    allowed |= {"find", "index"}
     unknown = sorted(set(data) - top - allowed)
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
@@ -379,6 +380,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         size=_size(data, where),
         stale=_stale(data, where),
         find=data.get("find", {}),
+        index=data.get("index", {}),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,
