@@ -11,6 +11,8 @@ import os
 import sqlite3
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from operator import itemgetter
+from pathlib import Path
 
 from shouldercheck.memory import defaults
 from shouldercheck.memory.docs import Unit, decode, is_generated, record_unit
@@ -61,6 +63,10 @@ class StoreError(Exception):
     """The index cannot be opened or written."""
 
 
+def root_hash(root: Path) -> str:
+    return hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:12]
+
+
 def config_hash(cfg: Config) -> str:
     material = {
         "include": cfg.include.patterns,
@@ -70,6 +76,15 @@ def config_hash(cfg: Config) -> str:
     }
     blob = json.dumps(material, sort_keys=True, default=str, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:8]
+
+
+def xdg(name: str, fallback: str) -> Path:
+    base = os.environ.get(name)
+    return Path(base) if base else Path.home() / fallback
+
+
+def default_cache_dir(root: Path) -> Path:
+    return xdg("XDG_CACHE_HOME", ".cache") / "shck" / root_hash(root)
 
 
 class Store:
@@ -86,6 +101,20 @@ class Store:
         conn = sqlite3.connect(":memory:")
         conn.isolation_level = None
         return cls(conn, True)
+
+    @classmethod
+    def on_disk(cls, path: Path) -> "Store":
+        try:
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT)
+            conn.isolation_level = None
+            conn.execute("PRAGMA journal_mode=WAL")
+            path.chmod(0o600)
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA cache_size=-65536")
+        except (OSError, sqlite3.Error) as exc:
+            raise StoreError(f"cannot open index {path}: {exc}") from exc
+        return cls(conn, False)
 
     def close(self) -> None:
         self.conn.close()
@@ -190,7 +219,8 @@ class Store:
             for unit in _read_units(cfg, settings, path, tier):
                 postings += self._insert(path, unit, corpus)
         if postings:
-            postings.sort()
+            # Documents are inserted in id order, so a stable sort by term keeps (term, doc) sorted.
+            postings.sort(key=itemgetter(0))
             self.conn.executemany("INSERT INTO post VALUES (?, ?, ?)", postings)
         if relink:
             self._resolve_links(corpus)

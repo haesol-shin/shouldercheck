@@ -13,3 +13,4 @@ All notable changes to shouldercheck are documented here. The format is based on
 - `shck check` flags oversized documents, over-long lines and over-budget maps (`size`), identical files (`dup-content`) and old `updated:` dates (`stale`); all three are opt-in through `[checks]`.
 - Documentation for `shck check`: the profile reference, an example profile, and how agents call it.
 - `shck find` ranks records by weighted fields (aliases, title, tags, summary, name, body) with Korean bigrams, exact-name order, superseded marking and linked neighbours; the order is deterministic and every printed string is masked.
+- `shck find` keeps a derived index outside the record base, re-parses only files whose size or time changed, and falls back to memory when the index is locked or unusable; `--no-cache` skips it.

@@ -59,12 +59,13 @@ def _add_find(sub: "argparse._SubParsersAction") -> None:
     find = sub.add_parser(
         "find",
         help="find records about a topic, ranked, with their linked neighbours (read-only)",
-        description="Rank records by weighted fields. Writes nothing.",
+        description="Rank records by weighted fields. Writes only the derived index.",
     )
     find.add_argument("query", nargs="+", help="words to look for")
     find.add_argument("--limit", type=int, default=10, help="records to return (default: 10)")
     find.add_argument("--format", choices=FORMATS, help="output format (default: from profile)")
     find.add_argument("--neighbors", type=int, help="links shown per direction (default: profile)")
+    find.add_argument("--no-cache", action="store_true", help="build the index in memory only")
     _add_root_config(find)
 
 
@@ -115,6 +116,7 @@ def _find(args: argparse.Namespace) -> int:
             " ".join(args.query),
             limit=max(args.limit, 0),
             neighbors=args.neighbors,
+            use_cache=not args.no_cache,
         )
     except ConfigError as exc:
         print(f"shck: {exc}", file=sys.stderr)

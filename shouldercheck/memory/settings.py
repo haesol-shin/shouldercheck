@@ -2,6 +2,7 @@
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from shouldercheck.memory import defaults
 from shouldercheck.memory.tokens import Masker
@@ -19,6 +20,7 @@ FIND_KEYS = {
     "priority",
     "exact_name_first",
     "mask",
+    "cache_dir",
     "log",
     "neighbors",
 }
@@ -62,6 +64,7 @@ class FindSettings:
     priority: tuple[tuple[Globs, int], ...]
     exact_name_first: bool
     masker: Masker
+    cache_dir: str | None
     log: LogSettings
     neighbors: int
 
@@ -195,6 +198,15 @@ def find_settings(cfg: Config) -> FindSettings:
         priority=_priority(table, where),
         exact_name_first=exact,
         masker=Masker(_patterns(_strings(table.get("mask", []), "mask", where), where)),
+        cache_dir=_optional_path(table, "cache_dir", where),
         log=_log(table, where),
         neighbors=_integer(table, "neighbors", defaults.NEIGHBORS, 0, where),
     )
+
+
+def resolve_dir(configured: str | None, cfg: Config, default: Path) -> Path:
+    """A profile folder is relative to the profile file; the default has no profile to follow."""
+    if configured is None:
+        return default
+    base = cfg.path.parent if cfg.path else cfg.root
+    return (base / Path(configured).expanduser()).resolve()

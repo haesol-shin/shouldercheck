@@ -1,8 +1,11 @@
 """`shck find`: open the index, rank, and describe the hits."""
 
+import sqlite3
+import sys
 import time
 from collections.abc import Collection
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from shouldercheck.memory import defaults
 from shouldercheck.memory.docs import (
@@ -12,16 +15,19 @@ from shouldercheck.memory.docs import (
     read_fields,
 )
 from shouldercheck.memory.rank import Ranked, Ranker
-from shouldercheck.memory.settings import RECORDS, FindSettings, find_settings
+from shouldercheck.memory.settings import RECORDS, FindSettings, find_settings, resolve_dir
 from shouldercheck.memory.store import (
     LinkRow,
     Store,
+    StoreError,
+    default_cache_dir,
     tier_selector,
 )
 from shouldercheck.memory.tokens import Masker, tokenize
 from shouldercheck.records.config import Config
 from shouldercheck.records.scan import scan_tree
 
+CACHE_FILE = "find.sqlite"
 WINDOW_LEAD = 40
 
 
@@ -39,10 +45,10 @@ class Index:
     ranker: Ranker
     state: str
     build_ms: int
+    docs: int = 0
 
-    @property
-    def docs(self) -> int:
-        return self.ranker.count(RECORDS)
+    def close(self) -> None:
+        self.store.close()
 
 
 @dataclass
@@ -67,15 +73,45 @@ class Result:
         }
 
 
-def open_index(cfg: Config, settings: FindSettings) -> Index:
-    """Build the index of the whole scope in memory."""
+def open_index(
+    cfg: Config,
+    settings: FindSettings,
+    *,
+    use_cache: bool = True,
+    cache_file: Path | None = None,
+) -> Index:
+    """Open the cache (or build in memory) and bring it up to date with the tree."""
     start = time.perf_counter()
     if not cfg.root.is_dir():
         raise InputError(f"record base not found: {cfg.root}")
-    store = Store.memory()
-    store.refresh(cfg, settings, scan_tree(cfg), tier_selector(cfg, settings))
+    tier_of = tier_selector(cfg, settings)
+    store = _open_store(cfg, settings, use_cache, cache_file)
+    scan = scan_tree(cfg)
+    try:
+        store.refresh(cfg, settings, scan, tier_of)
+    except (StoreError, OSError, sqlite3.Error) as exc:
+        if store.in_memory:
+            raise
+        print(f"shck: {exc}; building in memory instead", file=sys.stderr)
+        store.close()
+        store = Store.memory()
+        store.refresh(cfg, settings, scan, tier_of)
     ms = int((time.perf_counter() - start) * 1000)
-    return Index(cfg, settings, store, Ranker(store, settings), store.state, ms)
+    ranker = Ranker(store, settings)
+    return Index(cfg, settings, store, ranker, store.state, ms, ranker.count(RECORDS))
+
+
+def _open_store(
+    cfg: Config, settings: FindSettings, use_cache: bool, cache_file: Path | None
+) -> Store:
+    if not use_cache:
+        return Store.memory()
+    folder = resolve_dir(settings.cache_dir, cfg, default_cache_dir(cfg.root))
+    try:
+        return Store.on_disk(cache_file or folder / CACHE_FILE)
+    except StoreError as exc:
+        print(f"shck: {exc}; building in memory instead", file=sys.stderr)
+        return Store.memory()
 
 
 def run_find(
@@ -84,12 +120,30 @@ def run_find(
     *,
     limit: int = 10,
     neighbors: int | None = None,
+    use_cache: bool = True,
     skip_files: Collection[str] = (),
     index: Index | None = None,
 ) -> Result:
     started = time.perf_counter()
     settings = find_settings(cfg)
-    index = index or open_index(cfg, settings)
+    opened = index or open_index(cfg, settings, use_cache=use_cache)
+    try:
+        return _search(cfg, settings, opened, query, limit, neighbors, skip_files, started)
+    finally:
+        if index is None:
+            opened.close()
+
+
+def _search(
+    cfg: Config,
+    settings: FindSettings,
+    index: Index,
+    query: str,
+    limit: int,
+    neighbors: int | None,
+    skip_files: Collection[str],
+    started: float,
+) -> Result:
     shown = settings.neighbors if neighbors is None else neighbors
     ranked = index.ranker.rank(query, [RECORDS])
     result = Result(query, index)
@@ -99,7 +153,7 @@ def run_find(
     for rank, item in enumerate(records[:limit], 1):
         result.hits.append(describer.record(rank, item))
     result.ranked = _flat(ranked, settings, skip_files)
-    result.ms = int((time.perf_counter() - started) * 1000) + index.build_ms
+    result.ms = int((time.perf_counter() - started) * 1000)
     return result
 
 

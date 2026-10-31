@@ -4,12 +4,12 @@
 
 ```sh
 shck find QUERY... [--limit 10] [--format text|json]
-                   [--neighbors N] [--root DIR] [--config FILE]
+                   [--neighbors N] [--no-cache] [--root DIR] [--config FILE]
 ```
 
 ## Guarantees
 
-- **Read-only.** It writes nothing.
+- **Read-only on the record base.** The only file it writes is the derived index (see [Speed and freshness](#speed-and-freshness)).
 - **No model, no network.** Standard library only.
 - **Deterministic.** The same tree and query give the same order; ties break on the path.
 - **Bounded, masked output.** Every printed string is masked, then cut to 160 characters.
@@ -44,7 +44,7 @@ Order:
 
 ## Neighbours
 
-From the index: outgoing links with the relation word that stands before the link (`word:` or `**word**:`), incoming links from other records, and other documents that share an alias (never merged). At most `--neighbors` (default 8) per direction; titles are cut to 160 characters.
+From the index, without reading files: outgoing links with the relation word that stands before the link (`word:` or `**word**:`), incoming links from other records, and other documents that share an alias (never merged). At most `--neighbors` (default 8) per direction; titles are cut to 160 characters.
 
 A document is superseded when its front matter `status` is in `superseded_status`, when it has an outgoing link after a `superseded_by` word, or when another record links to it after a `supersedes` word.
 
@@ -78,9 +78,10 @@ All keys are optional and live in the `[find]` table of `shck.toml`; unknown key
 | `exact_name_first` | `true` | The exact-name order above. |
 | `neighbors` | 8 | Default for `--neighbors`. |
 | `mask` | `[]` | Regular expressions masked in every printed string, besides the built-in secret shapes. |
+| `cache_dir` | `$XDG_CACHE_HOME/shck/<root hash>/` | Folder of the derived index. |
 
 `[find.relations]` maps a relation name to the words that stand before a link: `follows`, `basis`, `superseded_by`, `supersedes`, `related` (defaults are the English names). `[[find.priority]]` entries (`glob`, `rank`) order exact-name hits; the first matching glob wins.
 
-## Speed
+## Speed and freshness
 
-Each call parses every file in scope and builds the index in memory.
+The index is a derived SQLite file (term counts, links, names) outside the record base, in `cache_dir`. Each call walks the scope, compares size and modification time of each file, and parses only changed files; a changed profile, tokenizer or schema rebuilds it. `--no-cache` builds it in memory. Delete the folder at any time; nothing else depends on it. If the index is locked or cannot be opened, the call builds in memory and prints one line to stderr.
