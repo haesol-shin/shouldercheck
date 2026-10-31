@@ -13,6 +13,7 @@ from shouldercheck.memory.docs import (
     Fields,
     decode,
     read_fields,
+    split_entries,
 )
 from shouldercheck.memory.rank import Ranked, Ranker
 from shouldercheck.memory.settings import RECORDS, FindSettings, find_settings, resolve_dir
@@ -27,6 +28,7 @@ from shouldercheck.memory.tokens import Masker, tokenize
 from shouldercheck.records.config import Config
 from shouldercheck.records.scan import scan_tree
 
+SCOPES = ("records", "transcript", "all")
 CACHE_FILE = "find.sqlite"
 WINDOW_LEAD = 40
 
@@ -56,6 +58,7 @@ class Result:
     query: str
     index: Index
     hits: list[dict] = field(default_factory=list)
+    transcript: list[dict] = field(default_factory=list)
     ranked: list[tuple[str, float, str]] = field(default_factory=list)
     total_hits: int = 0
     ms: int = 0
@@ -70,6 +73,7 @@ class Result:
                 "ms": self.index.build_ms,
             },
             "hits": self.hits,
+            "transcript": self.transcript,
         }
 
 
@@ -119,6 +123,7 @@ def run_find(
     query: str,
     *,
     limit: int = 10,
+    scope: str = "all",
     neighbors: int | None = None,
     use_cache: bool = True,
     skip_files: Collection[str] = (),
@@ -128,7 +133,7 @@ def run_find(
     settings = find_settings(cfg)
     opened = index or open_index(cfg, settings, use_cache=use_cache)
     try:
-        return _search(cfg, settings, opened, query, limit, neighbors, skip_files, started)
+        return _search(cfg, settings, opened, query, limit, scope, neighbors, skip_files, started)
     finally:
         if index is None:
             opened.close()
@@ -140,18 +145,26 @@ def _search(
     index: Index,
     query: str,
     limit: int,
+    scope: str,
     neighbors: int | None,
     skip_files: Collection[str],
     started: float,
 ) -> Result:
     shown = settings.neighbors if neighbors is None else neighbors
-    ranked = index.ranker.rank(query, [RECORDS])
+    tiers = _scope_tiers(scope, index)
+    ranked = index.ranker.rank(query, tiers)
     result = Result(query, index)
     records = [r for r in ranked.get(RECORDS, []) if r.doc.path not in skip_files]
     result.total_hits = len(records)
     describer = _Describer(index, query, shown)
     for rank, item in enumerate(records[:limit], 1):
         result.hits.append(describer.record(rank, item))
+    rank = len(result.hits)
+    for tier in settings.tiers:
+        found = [r for r in ranked.get(tier.name, []) if r.doc.path.split("#")[0] not in skip_files]
+        for item in found[: tier.max_hits]:
+            rank += 1
+            result.transcript.append(describer.entry(rank, item))
     result.ranked = _flat(ranked, settings, skip_files)
     result.ms = int((time.perf_counter() - started) * 1000)
     return result
@@ -160,11 +173,22 @@ def _search(
 def _flat(
     ranked: dict[str, list[Ranked]], settings: FindSettings, skip: Collection[str]
 ) -> list[tuple[str, float, str]]:
+    order = [RECORDS, *(tier.name for tier in settings.tiers)]
     return [
-        (item.doc.path, item.score, RECORDS)
-        for item in ranked.get(RECORDS, [])
-        if item.doc.path not in skip
+        (item.doc.path, item.score, tier)
+        for tier in order
+        for item in ranked.get(tier, [])
+        if item.doc.path.split("#")[0] not in skip
     ]
+
+
+def _scope_tiers(scope: str, index: Index) -> list[str]:
+    extra = [tier.name for tier in index.settings.tiers]
+    if scope == "records":
+        return [RECORDS]
+    if scope == "transcript":
+        return extra
+    return [RECORDS, *extra]
 
 
 def rank_records(index: Index, query: str) -> list[Ranked]:
@@ -217,6 +241,27 @@ class _Describer:
             "incoming": self._incoming(incoming),
             "outgoing_total": len(outgoing),
             "incoming_total": len(incoming),
+        }
+
+    def entry(self, rank: int, item: Ranked) -> dict:
+        doc = item.doc
+        rel, _, fragment = doc.path.partition("#")
+        text = self._read(rel)
+        body = ""
+        spec = self.index.settings.tier(doc.tier)
+        if text is not None and spec is not None:
+            if spec.unit == "entry":
+                found = [e for e in split_entries(text, spec) if e[0] == fragment]
+                body = found[0][2] if found else ""
+            else:
+                body = text
+        return {
+            "rank": rank,
+            "tier": doc.tier,
+            "path": self.masker.clip(doc.path, keep_space=True),
+            "score": round(item.score, 3),
+            "title": self.masker.clip(doc.title),
+            "snippet": self._window(body.split("\n")) if body else "",
         }
 
     def _matched(self, fields: Fields | None) -> list[str]:
@@ -280,11 +325,15 @@ class _Describer:
 
 
 def render_text(result: Result) -> str:
-    if not result.hits:
+    if not result.hits and not result.transcript:
         return "no results\n"
     lines: list[str] = []
     for hit in result.hits:
         lines += _block(hit)
+    if result.transcript:
+        lines.append("transcript (low rank, not records)")
+        for hit in result.transcript:
+            lines += _block(hit)
     return "\n".join(lines) + "\n"
 
 

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from shouldercheck import __version__
-from shouldercheck.memory.find import InputError, render_text, run_find
+from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
 from shouldercheck.records.checks import CHECKS
 from shouldercheck.records.config import FAIL_ON, FORMATS, ConfigError, load_config
 from shouldercheck.records.report import run_check
@@ -64,6 +64,7 @@ def _add_find(sub: "argparse._SubParsersAction") -> None:
     find.add_argument("query", nargs="+", help="words to look for")
     find.add_argument("--limit", type=int, default=10, help="records to return (default: 10)")
     find.add_argument("--format", choices=FORMATS, help="output format (default: from profile)")
+    find.add_argument("--scope", choices=SCOPES, default="all", help="records, transcript or all")
     find.add_argument("--neighbors", type=int, help="links shown per direction (default: profile)")
     find.add_argument("--no-cache", action="store_true", help="build the index in memory only")
     _add_root_config(find)
@@ -115,6 +116,7 @@ def _find(args: argparse.Namespace) -> int:
             cfg,
             " ".join(args.query),
             limit=max(args.limit, 0),
+            scope=args.scope,
             neighbors=args.neighbors,
             use_cache=not args.no_cache,
         )

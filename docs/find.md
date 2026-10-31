@@ -3,7 +3,7 @@
 `shck find` ranks the records of a Markdown record base against a query and lists each hit with the records it links to. It reads files and writes nothing into the record base.
 
 ```sh
-shck find QUERY... [--limit 10] [--format text|json]
+shck find QUERY... [--limit 10] [--format text|json] [--scope records|transcript|all]
                    [--neighbors N] [--no-cache] [--root DIR] [--config FILE]
 ```
 
@@ -48,6 +48,25 @@ From the index, without reading files: outgoing links with the relation word tha
 
 A document is superseded when its front matter `status` is in `superseded_status`, when it has an outgoing link after a `superseded_by` word, or when another record links to it after a `supersedes` word.
 
+## Transcript tier
+
+Chat logs and similar transcripts can be searched at a low rank. A tier is a set of files outside the record scope (they are not in the top-level `include`, so `shck check` never reads them):
+
+```toml
+[[find.tiers]]
+name = "transcript"
+include = ["chat/*.md"]
+unit = "entry"                      # file, or entry: split at lines matching entry_pattern
+entry_pattern = '^### \d{2}:\d{2} · m(\d+)$'   # group 1 names the entry
+anchor_prefix = "m"                 # an entry's path is chat/2026-01-01.md#m123
+max_hits = 3
+```
+
+- **Separate statistics.** A tier has its own term counts, so scores of tiers are never mixed.
+- **Low rank is structural.** Tier hits never stand above a record. They come in the `transcript` array after the records, with ranks that continue, and under their own heading in text. At most `max_hits` (default 3) per tier.
+- **Prefix.** Each entry is indexed with its file title and date.
+- A file that matches both the record scope and a tier stays a record. `--scope records|transcript|all` (default `all`) picks the arrays.
+
 ## Output
 
 Text: one block per hit. JSON (`schema_version` 1; fields only grow):
@@ -59,7 +78,8 @@ Text: one block per hit. JSON (`schema_version` 1; fields only grow):
            "matched": ["alias", "title", "body"], "title": "...", "summary": "...",
            "snippet": "...", "status": null, "superseded": false, "replaced_by": [],
            "same_alias_as": [], "aliases": [], "outgoing": [], "incoming": [],
-           "outgoing_total": 0, "incoming_total": 0}]}
+           "outgoing_total": 0, "incoming_total": 0}],
+ "transcript": []}
 ```
 
 `matched` and `snippet` are computed for the returned hits only, by reading those files. The snippet is the best-matching line, masked and cut to 160 characters.
@@ -77,6 +97,7 @@ All keys are optional and live in the `[find]` table of `shck.toml`; unknown key
 | `superseded_status` | `["superseded"]` | Front matter `status` values that mark a document superseded. |
 | `exact_name_first` | `true` | The exact-name order above. |
 | `neighbors` | 8 | Default for `--neighbors`. |
+| `tiers` | none | `[[find.tiers]]` tables as above. |
 | `mask` | `[]` | Regular expressions masked in every printed string, besides the built-in secret shapes. |
 | `cache_dir` | `$XDG_CACHE_HOME/shck/<root hash>/` | Folder of the derived index. |
 

@@ -20,12 +20,26 @@ FIND_KEYS = {
     "priority",
     "exact_name_first",
     "mask",
+    "tiers",
     "cache_dir",
     "log",
     "neighbors",
 }
 LOG_KEYS = {"dir", "keep_days", "max_bytes_per_day", "log_top", "max_line_bytes"}
+TIER_KEYS = {"name", "include", "exclude", "unit", "entry_pattern", "anchor_prefix", "max_hits"}
+TIER_UNITS = ("file", "entry")
 RECORDS = "records"
+
+
+@dataclass(frozen=True)
+class Tier:
+    name: str
+    include: Globs
+    exclude: Globs
+    unit: str
+    entry_pattern: re.Pattern[str] | None
+    anchor_prefix: str
+    max_hits: int
 
 
 @dataclass(frozen=True)
@@ -64,6 +78,7 @@ class FindSettings:
     priority: tuple[tuple[Globs, int], ...]
     exact_name_first: bool
     masker: Masker
+    tiers: tuple[Tier, ...]
     cache_dir: str | None
     log: LogSettings
     neighbors: int
@@ -73,6 +88,9 @@ class FindSettings:
             if glob(rel):
                 return rank
         return defaults.DEFAULT_RANK
+
+    def tier(self, name: str) -> Tier | None:
+        return next((tier for tier in self.tiers if tier.name == name), None)
 
 
 def _where(cfg: Config) -> str:
@@ -160,6 +178,50 @@ def _priority(table: dict, where: str) -> tuple[tuple[Globs, int], ...]:
     return tuple(result)
 
 
+def _tier(entry: object, where: str) -> Tier:
+    entry = _table(entry, "find.tiers", TIER_KEYS, where)
+    name = entry.get("name")
+    if not isinstance(name, str) or not name or name == RECORDS:
+        raise ConfigError(f"{where}: [[find.tiers]] needs a name other than {RECORDS!r}")
+    unit = entry.get("unit", "file")
+    if unit not in TIER_UNITS:
+        raise ConfigError(f"{where}: tier {name} unit must be one of {', '.join(TIER_UNITS)}")
+    pattern = None
+    if unit == "entry":
+        raw = entry.get("entry_pattern")
+        if not isinstance(raw, str):
+            raise ConfigError(f"{where}: tier {name} needs an entry_pattern")
+        pattern = _patterns((raw,), where)[0]
+        if pattern.groups < 1:
+            raise ConfigError(f"{where}: tier {name} entry_pattern needs a capture group")
+    prefix = entry.get("anchor_prefix", "")
+    if not isinstance(prefix, str):
+        raise ConfigError(f"{where}: tier {name} anchor_prefix must be a string")
+    include = _strings(entry.get("include", []), "include", where)
+    if not include:
+        raise ConfigError(f"{where}: tier {name} needs include globs")
+    return Tier(
+        name=name,
+        include=_globs(include, where),
+        exclude=_globs(_strings(entry.get("exclude", []), "exclude", where), where),
+        unit=unit,
+        entry_pattern=pattern,
+        anchor_prefix=prefix,
+        max_hits=_integer(entry, "max_hits", defaults.TIER_MAX_HITS, 1, where),
+    )
+
+
+def _tiers(table: dict, where: str) -> tuple[Tier, ...]:
+    entries = table.get("tiers", [])
+    if not isinstance(entries, list):
+        raise ConfigError(f"{where}: [[find.tiers]] must be an array of tables")
+    tiers = tuple(_tier(entry, where) for entry in entries)
+    names = [tier.name for tier in tiers]
+    if len(set(names)) != len(names):
+        raise ConfigError(f"{where}: [[find.tiers]] names must be unique")
+    return tiers
+
+
 def _optional_path(table: dict, key: str, where: str) -> str | None:
     value = table.get(key)
     if value is not None and not isinstance(value, str):
@@ -198,6 +260,7 @@ def find_settings(cfg: Config) -> FindSettings:
         priority=_priority(table, where),
         exact_name_first=exact,
         masker=Masker(_patterns(_strings(table.get("mask", []), "mask", where), where)),
+        tiers=_tiers(table, where),
         cache_dir=_optional_path(table, "cache_dir", where),
         log=_log(table, where),
         neighbors=_integer(table, "neighbors", defaults.NEIGHBORS, 0, where),

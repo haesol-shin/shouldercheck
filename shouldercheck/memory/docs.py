@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from shouldercheck.memory.defaults import MARKER
-from shouldercheck.memory.settings import FindSettings
+from shouldercheck.memory.settings import FindSettings, Tier
 from shouldercheck.memory.tokens import norm, tokenize
 from shouldercheck.records import markdown
 
@@ -31,7 +31,7 @@ class RawLink:
 
 @dataclass
 class Unit:
-    """One thing the ranker scores: a record."""
+    """One thing the ranker scores: a record, or one entry of a transcript file."""
 
     path: str
     tier: str
@@ -174,3 +174,43 @@ def record_unit(rel: str, text: str, settings: FindSettings) -> Unit:
         names=_names(rel, fields.title, fields.aliases),
         links=_links(fields, settings),
     )
+
+
+def split_entries(text: str, tier: Tier) -> list[tuple[str, str, str]]:
+    """(fragment, header line, text) per entry; text before the first header has no fragment."""
+    assert tier.entry_pattern is not None
+    entries: list[tuple[str, str, list[str]]] = [("", "", [])]
+    for line in markdown.split_lines(text):
+        match = tier.entry_pattern.match(line)
+        if match:
+            entries.append((tier.anchor_prefix + match.group(1), line.lstrip("# ").strip(), []))
+        else:
+            entries[-1][2].append(line)
+    return [
+        (frag, head, "\n".join(body)) for frag, head, body in entries if (frag or "".join(body))
+    ]
+
+
+def tier_units(rel: str, text: str, tier: Tier, settings: FindSettings) -> list[Unit]:
+    """A transcript file becomes one unit per entry, each prefixed with the file title and date."""
+    stem = posixpath.splitext(posixpath.basename(rel))[0]
+    title = _title({}, markdown.split_lines(text), 0, rel)
+    if tier.unit == "file":
+        entries = [("", "", text)]
+    else:
+        entries = split_entries(text, tier)
+    units = []
+    for fragment, header, body in entries:
+        shown = f"{stem} {header}".strip() if header else title
+        tf, length = weighted_terms({"body": f"{title} {stem}\n{body}"}, settings.weights)
+        units.append(
+            Unit(
+                path=f"{rel}#{fragment}" if fragment else rel,
+                tier=tier.name,
+                title=shown,
+                summary=next((ln.strip() for ln in body.split("\n") if ln.strip()), ""),
+                tf=tf,
+                length=length,
+            )
+        )
+    return units
