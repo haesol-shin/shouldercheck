@@ -4,12 +4,12 @@
 
 ```sh
 shck find QUERY... [--limit 10] [--format text|json] [--scope records|transcript|all]
-                   [--neighbors N] [--no-cache] [--root DIR] [--config FILE]
+                   [--neighbors N] [--caller NAME] [--session ID] [--no-log] [--no-cache] [--root DIR] [--config FILE]
 ```
 
 ## Guarantees
 
-- **Read-only on the record base.** The only file it writes is the derived index (see [Speed and freshness](#speed-and-freshness)).
+- **Read-only on the record base.** It writes only the derived index (see [Speed and freshness](#speed-and-freshness)) and the query log (see [Query log](#query-log)), both outside the base.
 - **No model, no network.** Standard library only.
 - **Deterministic.** The same tree and query give the same order; ties break on the path.
 - **Bounded, masked output.** Every printed string is masked, then cut to 160 characters.
@@ -72,7 +72,7 @@ max_hits = 3
 Text: one block per hit. JSON (`schema_version` 1; fields only grow):
 
 ```json
-{"schema_version": 1, "query": "...",
+{"schema_version": 1, "query": "...", "caller": "omp",
  "index": {"state": "warm", "docs": 120, "ms": 41},
  "hits": [{"rank": 1, "tier": "records", "path": "...", "score": 12.34,
            "matched": ["alias", "title", "body"], "title": "...", "summary": "...",
@@ -84,7 +84,27 @@ Text: one block per hit. JSON (`schema_version` 1; fields only grow):
 
 `matched` and `snippet` are computed for the returned hits only, by reading those files. The snippet is the best-matching line, masked and cut to 160 characters.
 
+`caller` is the value logged for this call (see below).
+
 Exit codes: `0` (with hits or none), `2` config error, `3` the record base cannot be read.
+
+## Query log
+
+Every call appends one line to `YYYY-MM-DD.jsonl` (UTC day) in `$XDG_STATE_HOME/shck/<root hash>/queries/`, outside the record base. It separates "the agent did not search" from "the agent searched and missed".
+
+```json
+{"v": 1, "ts": "2026-10-31T11:20:05+00:00", "caller": "omp", "session": null,
+ "query": "...", "scope": "all", "paths": null, "limit": 10,
+ "ranked": [["notes/launch-plan.md", 2.35, "records"]], "top_score": 2.35,
+ "n_hits": 10, "index": "warm", "ms": 214, "shck": "0.0.0", "config_hash": "ab12cd34",
+ "snapshot": null}
+```
+
+- **Caller.** `--caller` wins, then `$SHCK_CALLER`, else `unknown`. `--session` then `$SHCK_SESSION`. shck only defines the contract; the agent's rules or environment set the value, for example `shck find --caller omp ...`. A report counts `unknown` as a visible gap.
+- **Privacy.** The query and paths are masked with the same mask as the output. Snippets, neighbours and record text are never logged. The folder is mode `0700`, files `0600`.
+- **Size.** `ranked` keeps the top `log_top` (20) entries. A line over `max_line_bytes` (4096) drops entries from the end of `ranked`, so one `O_APPEND` write holds one line and concurrent callers do not interleave. After `max_bytes_per_day` (5 MB) the day gets one `{"truncated":true}` line and nothing more.
+- **Retention.** Day files older than `keep_days` (90) are gzip-compressed in place (`YYYY-MM-DD.jsonl.gz`) on the next write, after the compressed copy reads back equal. Nothing is deleted; a day written again after compression gets a second gzip member.
+- **Limits.** A failure to write prints one line to stderr and never fails `find`. Only `shck find` calls appear: a `cat` or `grep` of a record does not. `--no-log` skips the line; library callers (eval, gaps) never log.
 
 ## Profile
 
@@ -99,6 +119,7 @@ All keys are optional and live in the `[find]` table of `shck.toml`; unknown key
 | `neighbors` | 8 | Default for `--neighbors`. |
 | `tiers` | none | `[[find.tiers]]` tables as above. |
 | `mask` | `[]` | Regular expressions masked in every printed string, besides the built-in secret shapes. |
+| `log` | see Query log | `[find.log]`: `dir`, `keep_days`, `max_bytes_per_day`, `log_top`, `max_line_bytes`. |
 | `cache_dir` | `$XDG_CACHE_HOME/shck/<root hash>/` | Folder of the derived index. |
 
 `[find.relations]` maps a relation name to the words that stand before a link: `follows`, `basis`, `superseded_by`, `supersedes`, `related` (defaults are the English names). `[[find.priority]]` entries (`glob`, `rank`) order exact-name hits; the first matching glob wins.

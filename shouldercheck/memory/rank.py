@@ -71,8 +71,9 @@ class Ranker:
         scores = self._score(terms, wanted)
         by_tier: dict[str, list[Ranked]] = defaultdict(list)
         names = self._name_tiers(query, scores)
+        docs = self.store.docs()
         for doc_id, score in scores.items():
-            doc = self.store.docs()[doc_id]
+            doc = docs[doc_id]
             by_tier[doc.tier].append(self._ranked(doc, score, names.get(doc_id, NO_NAME)))
         return {tier: self._order(tier, items) for tier, items in by_tier.items()}
 

@@ -3,6 +3,7 @@
 import sqlite3
 import sys
 import time
+import unicodedata
 from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,6 +32,7 @@ from shouldercheck.records.scan import scan_tree
 SCOPES = ("records", "transcript", "all")
 CACHE_FILE = "find.sqlite"
 WINDOW_LEAD = 40
+EXACT_LINES = 8
 
 
 class InputError(Exception):
@@ -62,11 +64,13 @@ class Result:
     ranked: list[tuple[str, float, str]] = field(default_factory=list)
     total_hits: int = 0
     ms: int = 0
+    caller: str | None = None
 
     def to_json(self) -> dict:
         return {
             "schema_version": 1,
             "query": self.query,
+            "caller": self.caller,
             "index": {
                 "state": self.index.state,
                 "docs": self.index.docs,
@@ -88,9 +92,9 @@ def open_index(
     start = time.perf_counter()
     if not cfg.root.is_dir():
         raise InputError(f"record base not found: {cfg.root}")
-    tier_of = tier_selector(cfg, settings)
     store = _open_store(cfg, settings, use_cache, cache_file)
     scan = scan_tree(cfg)
+    tier_of = tier_selector(cfg, settings, scan)
     try:
         store.refresh(cfg, settings, scan, tier_of)
     except (StoreError, OSError, sqlite3.Error) as exc:
@@ -196,6 +200,15 @@ def rank_records(index: Index, query: str) -> list[Ranked]:
     return index.ranker.rank(query, [RECORDS]).get(RECORDS, [])
 
 
+@dataclass(frozen=True)
+class _Body:
+    matched: bool
+    best: str
+
+
+_NO_BODY = _Body(False, "")
+
+
 class _Describer:
     """Fills in what the index does not hold (matched fields, snippet) by re-reading a file."""
 
@@ -216,7 +229,8 @@ class _Describer:
         doc = item.doc
         text = self._read(doc.path)
         fields = read_fields(doc.path, text) if text is not None else None
-        matched = self._matched(fields)
+        body = self._scan(fields.lines[fields.start :]) if fields else _NO_BODY
+        matched = self._matched(fields, body)
         mask = self.masker.clip
         aliases = self.index.store.aliases_of(doc.id)
         outgoing = self.index.store.outgoing(doc.id)
@@ -229,7 +243,7 @@ class _Describer:
             "matched": matched,
             "title": mask(doc.title),
             "summary": mask(fields.summary) if fields else "",
-            "snippet": self._snippet(fields),
+            "snippet": self._snippet(fields, body),
             "status": mask(doc.status) or None,
             "superseded": item.superseded,
             "replaced_by": [mask(p, keep_space=True) for p in item.replaced_by],
@@ -261,33 +275,53 @@ class _Describer:
             "path": self.masker.clip(doc.path, keep_space=True),
             "score": round(item.score, 3),
             "title": self.masker.clip(doc.title),
-            "snippet": self._window(body.split("\n")) if body else "",
+            "snippet": self._window(self._scan(body.split("\n"))) if body else "",
         }
 
-    def _matched(self, fields: Fields | None) -> list[str]:
+    def _scan(self, lines: list[str]) -> "_Body":
+        """Find the best-matching line without tokenising every line.
+
+        A query token that is in a line's token set is also a substring of the lowercased line, so
+        lines without any substring cannot match. The rest are ranked by how many terms they
+        contain and only the best few are tokenised to get the exact count.
+        """
+        folded = [unicodedata.normalize("NFC", line).lower() for line in lines]
+        candidates = []
+        for index, text in enumerate(folded):
+            count = sum(term in text for term in self.terms)
+            if count:
+                candidates.append((-count, index))
+        candidates.sort()
+        best, best_count, best_index, matched = "", 0, len(lines), False
+        for position, (_, index) in enumerate(candidates):
+            if position >= EXACT_LINES and matched:
+                break
+            count = len(self.terms & set(tokenize(lines[index])))
+            matched = matched or count > 0
+            if count > best_count or (count == best_count and count and index < best_index):
+                best, best_count, best_index = lines[index], count, index
+        return _Body(matched, best if best_count else "")
+
+    def _matched(self, fields: Fields | None, body: "_Body") -> list[str]:
         if fields is None:
             return []
-        return [
-            FIELD_LABELS[name]
-            for name, value in fields.values.items()
-            if self.terms & set(tokenize(value))
-        ]
+        found = []
+        for name, value in fields.values.items():
+            hit = body.matched if name == "body" else bool(self.terms & set(tokenize(value)))
+            if hit:
+                found.append(FIELD_LABELS[name])
+        return found
 
-    def _snippet(self, fields: Fields | None) -> str:
+    def _snippet(self, fields: Fields | None, body: "_Body") -> str:
         if fields is None:
             return ""
-        return self._window(fields.lines[fields.start :]) or self.masker.clip(fields.summary)
+        return self._window(body) or self.masker.clip(fields.summary)
 
-    def _window(self, lines: list[str]) -> str:
+    def _window(self, body: "_Body") -> str:
         """The best-matching line, masked first and then cut around the first matching word."""
-        best, best_count = "", 0
-        for line in lines:
-            count = len(self.terms & set(tokenize(line)))
-            if count > best_count:
-                best, best_count = line, count
-        if not best_count:
+        if not body.best:
             return ""
-        line = " ".join(self.masker.mask(best).split())
+        line = " ".join(self.masker.mask(body.best).split())
         if len(line) > defaults.SNIPPET_CHARS:
             offset = 0
             for word in line.split(" "):
