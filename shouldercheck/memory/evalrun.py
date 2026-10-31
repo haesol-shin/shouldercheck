@@ -1,114 +1,38 @@
 """`shck eval`: run case files through the finder and measure where the expected record lands."""
 
-import dataclasses
-import shutil
-import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from shouldercheck import __version__
-from shouldercheck.memory import snapshot
 from shouldercheck.memory.cases import Case, CaseSet, freeze_state
-from shouldercheck.memory.find import Index, open_index, rank_records
-from shouldercheck.memory.rank import Ranker
+from shouldercheck.memory.find import Index, rank_records
 from shouldercheck.memory.settings import (
     RECORDS,
     EvalSettings,
     FindSettings,
-    resolve_dir,
 )
 from shouldercheck.memory.stats import mcnemar_exact, median, wilson
-from shouldercheck.memory.store import Store, config_hash, default_cache_dir
+from shouldercheck.memory.store import config_hash
 from shouldercheck.memory.tokens import tokenize
-from shouldercheck.records.config import Config, ConfigError
+from shouldercheck.memory.trees import Trees
+from shouldercheck.records.config import Config
 
 SCHEMA_VERSION = 1
 GATE_K = 3
 ALPHA = 0.05
 BUCKETS = ("0", "under_0.34", "0.34_or_more")
-LIVE = "live"
-
-
-@dataclass
-class Trees:
-    """Indexes opened on demand: the live tree once, each distinct snapshot tree once."""
-
-    cfg: Config
-    settings: FindSettings
-    git_dir: Path | None
-    live: bool
-    forced: str | None
-    opened: dict[str, Index] = field(default_factory=dict)
-    commits: dict[str, str | None] = field(default_factory=dict)
-
-    def commit_for(self, case: Case) -> str | None:
-        if self.live:
-            return None
-        return self.forced or case.snapshot
-
-    def index_for(self, case: Case) -> tuple[Index, str, str | None]:
-        commit = self.commit_for(case)
-        if commit is None:
-            key = LIVE
-            if key not in self.opened:
-                self.opened[key] = open_index(self.cfg, self.settings)
-        else:
-            if self.git_dir is None:
-                raise ConfigError("snapshots need --git-dir or [eval] git_dir")
-            key = snapshot.tree_hash(self.git_dir, commit)
-            if key not in self.opened:
-                self.opened[key] = self._snapshot_index(key, commit)
-        self.commits.setdefault(key, commit)
-        return self.opened[key], key, commit
-
-    def _snapshot_index(self, tree: str, commit: str) -> Index:
-        folder = resolve_dir(self.settings.cache_dir, self.cfg, default_cache_dir(self.cfg.root))
-        cache_file = folder / f"snap-{tree}.sqlite"
-        try:
-            store = Store.on_disk(cache_file)
-        except Exception:
-            store = None
-        if store is not None and store.matches(self.cfg):
-            ranker = Ranker(store, self.settings)
-            return Index(self.cfg, self.settings, store, ranker, "warm", 0, ranker.count(RECORDS))
-        if store is not None:
-            store.close()
-        assert self.git_dir is not None
-        scratch = Path(tempfile.mkdtemp(prefix="shck-snapshot-"))
-        try:
-            snapshot.extract(self.git_dir, commit, scratch)
-            return open_index(
-                dataclasses.replace(self.cfg, root=scratch), self.settings, cache_file=cache_file
-            )
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
-
-    def read(self, case: Case, rel: str) -> str | None:
-        commit = self.commit_for(case)
-        if commit is None:
-            try:
-                return (self.cfg.root / rel).read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                return None
-        assert self.git_dir is not None
-        return snapshot.read_file(self.git_dir, commit, rel)
-
-    def close(self) -> None:
-        for index in self.opened.values():
-            index.close()
 
 
 def _paths(index: Index) -> dict[str, int]:
     return {d.path: d.id for d in index.store.docs().values() if d.tier == RECORDS}
 
 
-def _invalid(case: Case, paths: dict[str, int], trees: Trees) -> str | None:
+def _invalid(case: Case, commit: str | None, paths: dict[str, int], trees: Trees) -> str | None:
     if case.expect is None:
         return None
     if case.expect not in paths:
         return "expected path is not in the searched tree"
     if case.must_contain is not None:
-        text = trees.read(case, case.expect)
+        text = trees.read(commit, case.expect)
         if text is None or case.must_contain not in text:
             return "expected file does not contain must_contain"
     return None
@@ -154,16 +78,17 @@ def run_eval(
     abstain_below: float | None,
     gate: bool,
 ) -> dict:
-    trees = Trees(cfg, find, git_dir, live, snapshot_commit)
+    trees = Trees(cfg, find, git_dir)
     rows: list[dict] = []
     buckets: dict[str, list[int]] = {name: [0, 0] for name in BUCKETS}
     irrelevant_counts: list[int] = []
     labelled_pairs = {"labelled": 0, "irrelevant": 0, "on_topic_wrong": 0}
     try:
         for case in case_set.cases:
-            index, key, commit = trees.index_for(case)
+            commit = None if live else (snapshot_commit or case.snapshot)
+            index, key = trees.open(commit)
             ranked = rank_records(index, case.query)
-            reason = _invalid(case, _paths(index), trees)
+            reason = _invalid(case, commit, _paths(index), trees)
             order = [r.doc.path for r in ranked]
             rank = 0
             if case.expect in order[: options.rank_cap]:
@@ -194,10 +119,7 @@ def run_eval(
                 irrelevant_counts.append(counted)
                 row["irrelevant_top_k"] = counted
             rows.append(row)
-        tree_info = [
-            {"tree": key, "commit": trees.commits.get(key), "docs": index.docs}
-            for key, index in trees.opened.items()
-        ]
+        tree_info = trees.info()
     finally:
         trees.close()
     return _assemble(

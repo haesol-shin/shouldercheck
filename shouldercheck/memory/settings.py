@@ -419,3 +419,23 @@ def eval_settings(cfg: Config) -> EvalSettings:
         rank_cap=_integer(table, "rank_cap", RANK_CAP, 1, where),
         abstain_below=below,
     )
+
+
+GAPS_KEYS = {"candidates", "present", "weak"}
+
+
+@dataclass(frozen=True)
+class GapsSettings:
+    candidates: int
+    present: float
+    weak: float
+
+
+def gaps_settings(cfg: Config) -> GapsSettings:
+    where = _where(cfg)
+    table = _table(cfg.gaps, "gaps", GAPS_KEYS, where)
+    present = _number(table, "present", 0.8, 0, where)
+    weak = _number(table, "weak", 0.4, 0, where)
+    if not 0 < weak <= present <= 1:
+        raise ConfigError(f"{where}: [gaps] needs 0 < weak <= present <= 1")
+    return GapsSettings(_integer(table, "candidates", 5, 1, where), present, weak)

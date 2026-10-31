@@ -128,6 +128,7 @@ class Config:
     find: dict = field(default_factory=dict)
     index: dict = field(default_factory=dict)
     eval: dict = field(default_factory=dict)
+    gaps: dict = field(default_factory=dict)
 
     @property
     def display_path(self) -> str | None:
@@ -352,7 +353,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
     top |= {"max_read_chars", "links", "fail_on", "format"}
     allowed = {"checks", "links_opts", "orphans", "fields", "size", "stale", "per-path-ignores"}
-    allowed |= {"find", "index", "eval"}
+    allowed |= {"find", "index", "eval", "gaps"}
     unknown = sorted(set(data) - top - allowed)
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
@@ -383,6 +384,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         find=data.get("find", {}),
         index=data.get("index", {}),
         eval=data.get("eval", {}),
+        gaps=data.get("gaps", {}),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,
