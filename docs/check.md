@@ -134,4 +134,4 @@ The core never imports an agent harness. A harness calls the command and reads t
 
 ## Out of scope
 
-Editing or auto-fixing, search and ranking, external URL checking, semantic duplicates, reference-style and HTML links, a persistent index, notifications, non-Markdown files, and a superseded-without-successor check.
+Editing or auto-fixing, external URL checking, semantic duplicates, reference-style and HTML links, a persistent index, notifications, non-Markdown files, and a superseded-without-successor check. Search and ranking are [`shck find`](find.md).

@@ -22,12 +22,11 @@ An agent starts a new session, or its context is compressed. It no longer rememb
 - **Evidence.** Adapters record what the session actually opened. A path in a search result is not a read.
 - **Warn first.** The first mode only warns and writes one JSON line per warning. Blocking is a separate setting.
 - **Harness neutral.** The judging core takes an action, a target, and an evidence file. Thin adapters for Hermes Agent and omp collect the evidence and call the core.
-- **Find and link.** `shck find` and `shck links` search a Markdown knowledge base and keep links between notes up to date.
+- **Links.** `shck links` keeps links between notes up to date.
 
 ## Commands (planned)
 
 ```sh
-shck find    # find earlier records about a topic
 shck links   # check and update links between notes
 ```
 
@@ -35,6 +34,7 @@ shck links   # check and update links between notes
 
 ```sh
 shck check   # report broken structure in a Markdown record base (read-only)
+shck find    # find earlier records about a topic, ranked, with linked neighbours
 ```
 
 `shck check` reads a folder of Markdown notes and lists candidates with paths. It never edits, moves or deletes anything, and it does not decide what to fix. A TOML profile (`shck.toml` or `.shck.toml`) sets the scope, the checks and the exceptions; without one, a built-in profile applies.
@@ -44,6 +44,10 @@ shck check --root notes/ --format json --fail-on error
 ```
 
 Profile keys, checks, exceptions, output, exit codes and how agents call it: [docs/check.md](docs/check.md).
+
+The memory commands help an agent find a record before it acts:
+
+- `shck find` ranks records by weighted fields, lists linked neighbours: [docs/find.md](docs/find.md).
 
 ## Requirements
 

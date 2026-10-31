@@ -12,3 +12,4 @@ All notable changes to shouldercheck are documented here. The format is based on
 - `shck check` reports missing or unexpected front matter fields (`missing-field`, with a fallback to `key: value` lines near the top and a per-folder rule) and aliases claimed by two documents (`alias-dup`).
 - `shck check` flags oversized documents, over-long lines and over-budget maps (`size`), identical files (`dup-content`) and old `updated:` dates (`stale`); all three are opt-in through `[checks]`.
 - Documentation for `shck check`: the profile reference, an example profile, and how agents call it.
+- `shck find` ranks records by weighted fields (aliases, title, tags, summary, name, body) with Korean bigrams, exact-name order, superseded marking and linked neighbours; the order is deterministic and every printed string is masked.
