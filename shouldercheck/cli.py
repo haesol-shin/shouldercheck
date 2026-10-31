@@ -7,16 +7,9 @@ import sys
 from pathlib import Path
 
 from shouldercheck import __version__
-from shouldercheck.memory.cases import CaseError
-from shouldercheck.memory.evalcmd import render_compare_text, run_eval_command
-from shouldercheck.memory.evalrun import render_run_text
 from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
-from shouldercheck.memory.gaps import render_text as render_gaps_text
-from shouldercheck.memory.gapscmd import run_gaps_command
-from shouldercheck.memory.indexrun import run_index
 from shouldercheck.memory.qlog import identify, log_query
 from shouldercheck.memory.settings import find_settings
-from shouldercheck.memory.snapshot import SnapshotError
 from shouldercheck.records.checks import CHECKS
 from shouldercheck.records.config import FAIL_ON, FORMATS, ConfigError, load_config
 from shouldercheck.records.report import run_check
@@ -57,6 +50,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_index(sub)
     _add_eval(sub)
     _add_gaps(sub)
+    _add_report(sub)
     return parser
 
 
@@ -137,6 +131,21 @@ def _add_gaps(sub: "argparse._SubParsersAction") -> None:
     _add_root_config(gaps)
 
 
+def _add_report(sub: "argparse._SubParsersAction") -> None:
+    rep = sub.add_parser(
+        "report",
+        help="count failures per stage with intervals (prints, never writes)",
+        description="Summarise eval runs, gaps runs, the ledger, audits and the query log.",
+    )
+    rep.add_argument(
+        "--runs", nargs="+", type=Path, help="run files or folders (default: eval dir)"
+    )
+    rep.add_argument("--ledger", type=Path, help="failure ledger (default: eval dir)")
+    rep.add_argument("--audit", nargs="+", type=Path, default=[], help="owner audit files")
+    rep.add_argument("--format", choices=FORMATS, help="output format (default: text)")
+    _add_root_config(rep)
+
+
 def _load_baseline(path: Path) -> set[str]:
     """Fingerprints of an earlier JSON report; shck never writes one itself."""
     try:
@@ -212,6 +221,8 @@ def _find(args: argparse.Namespace) -> int:
 
 
 def _index(args: argparse.Namespace) -> int:
+    from shouldercheck.memory.indexrun import run_index
+
     try:
         cfg = load_config(args.config, args.root, Path.cwd())
         report = run_index(cfg, check=args.check, diff=args.diff, adopt=args.adopt)
@@ -229,6 +240,11 @@ def _index(args: argparse.Namespace) -> int:
 
 
 def _eval(args: argparse.Namespace) -> int:
+    from shouldercheck.memory.cases import CaseError
+    from shouldercheck.memory.evalcmd import render_compare_text, run_eval_command
+    from shouldercheck.memory.evalrun import render_run_text
+    from shouldercheck.memory.snapshot import SnapshotError
+
     try:
         cfg = load_config(args.config, args.root, Path.cwd())
         run = run_eval_command(cfg, args)
@@ -250,6 +266,11 @@ def _eval(args: argparse.Namespace) -> int:
 
 
 def _gaps(args: argparse.Namespace) -> int:
+    from shouldercheck.memory.cases import CaseError
+    from shouldercheck.memory.gaps import render_text as render_gaps_text
+    from shouldercheck.memory.gapscmd import run_gaps_command
+    from shouldercheck.memory.snapshot import SnapshotError
+
     try:
         cfg = load_config(args.config, args.root, Path.cwd())
         run = run_gaps_command(cfg, args)
@@ -266,6 +287,27 @@ def _gaps(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report(args: argparse.Namespace) -> int:
+    from shouldercheck.memory.cases import CaseError
+    from shouldercheck.memory.report import render_text as render_report_text
+    from shouldercheck.memory.reportcmd import run_report_command
+
+    try:
+        cfg = load_config(args.config, args.root, Path.cwd())
+        data = run_report_command(cfg, args)
+    except ConfigError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 2
+    except CaseError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 3
+    if (args.format or "text") == "json":
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.write(render_report_text(data))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -279,5 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         return _eval(args)
     if args.command == "gaps":
         return _gaps(args)
+    if args.command == "report":
+        return _report(args)
     parser.print_help()
     return 0
