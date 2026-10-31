@@ -76,3 +76,44 @@ Exit `1` when
 | `1` | `--gate` failed. |
 | `2` | Usage or profile error: unknown key, missing `[eval] dir`, snapshot without `--git-dir`, unusable baseline. |
 | `3` | A case file is unreadable or invalid, a snapshot commit is missing, or the root cannot be read. |
+
+# `shck gaps`
+
+`shck gaps` measures the write side: which facts from a source (a chat day, a meeting) have no record. It is deterministic and calls no model. The facts come from an extractor outside shck.
+
+```sh
+shck gaps FACTS.jsonl [--snapshot COMMIT --git-dir DIR | --live] [--candidates 5]
+                      [--sample N --seed S] [--audit AUDITS.jsonl] [--format json|text]
+```
+
+The default format is `json`; redirect it to a dated file. Nothing is written by shck.
+
+## Facts file
+
+One JSON object per line, written by an agent or a person:
+
+```json
+{"id": "F-20260101-001", "text": "the release is tagged on Fridays",
+ "source": "chat/2026-01-01.md#m123", "keywords": ["release", "tagged", "Fridays"],
+ "kind": "decision", "quote": "verbatim span, at most 200 chars", "expect": null}
+```
+
+Required: `id`, `text`, `source`, `keywords` (at least one). Optional: `kind` (`decision`, `correction`, `rule`, `state`), `quote`, `expect` (a path or glob where the fact should live).
+
+## Status
+
+For each fact, shck searches the records (never the transcript tier, never the source file) with the keywords and then with `text`, and keeps the union of the top `--candidates` of each search. For each candidate it computes `coverage`: the largest share of keywords found, after NFC and case folding, inside one blank-line-separated block.
+
+| Status | Rule |
+|---|---|
+| `present` | some candidate has coverage at least `[gaps] present` (default 0.8) |
+| `weak` | coverage from `[gaps] weak` (default 0.4) up to that, or every keyword is in a candidate but in different blocks |
+| `absent` | otherwise |
+
+When `expect` is set, only a candidate that matches it can make a fact `present`; a strong match elsewhere makes it `weak` and sets `expect_missing`. Thresholds are profile keys; set them from the owner's audit, not from this table.
+
+## Audit
+
+`--sample 30 --seed 20261101` orders fact ids by `sha256(seed:id)` and prints template lines `{"id", "shck", "owner": null, "note": ""}`. The owner (not an agent) fills `owner` with `present`, `weak`, `absent` or `invalid-fact` and saves the file beside the facts. `--audit FILE` then reports the agreement of shck's status with the owner's (n, agreements, Wilson interval) and the extractor's precision: the share of audited facts that are not `invalid-fact`. Junk and duplicate facts count as write-side harm.
+
+Exit codes: `0`, `2` usage or profile error, `3` unreadable or invalid facts or audit file, or a missing snapshot.

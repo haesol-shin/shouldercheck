@@ -11,6 +11,8 @@ from shouldercheck.memory.cases import CaseError
 from shouldercheck.memory.evalcmd import render_compare_text, run_eval_command
 from shouldercheck.memory.evalrun import render_run_text
 from shouldercheck.memory.find import SCOPES, InputError, render_text, run_find
+from shouldercheck.memory.gaps import render_text as render_gaps_text
+from shouldercheck.memory.gapscmd import run_gaps_command
 from shouldercheck.memory.indexrun import run_index
 from shouldercheck.memory.qlog import identify, log_query
 from shouldercheck.memory.settings import find_settings
@@ -54,6 +56,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_find(sub)
     _add_index(sub)
     _add_eval(sub)
+    _add_gaps(sub)
     return parser
 
 
@@ -114,6 +117,24 @@ def _add_eval(sub: "argparse._SubParsersAction") -> None:
     ev.add_argument("--gate", action="store_true", help="exit 1 when a must_pass case regresses")
     ev.add_argument("--format", choices=FORMATS, help="output format (default: json)")
     _add_root_config(ev)
+
+
+def _add_gaps(sub: "argparse._SubParsersAction") -> None:
+    gaps = sub.add_parser(
+        "gaps",
+        help="list facts from a source that have no record (prints, never writes)",
+        description="Check each fact in a JSONL file against the records by string coverage.",
+    )
+    gaps.add_argument("facts", type=Path, help="facts file (JSONL)")
+    gaps.add_argument("--snapshot", help="git commit to search instead of the live tree")
+    gaps.add_argument("--git-dir", type=Path, help="history repository for --snapshot")
+    gaps.add_argument("--live", action="store_true", help="search the live tree (default)")
+    gaps.add_argument("--candidates", type=int, help="records examined per search (default: 5)")
+    gaps.add_argument("--sample", type=int, help="print N audit lines for the owner to fill")
+    gaps.add_argument("--seed", default="0", help="seed that orders the audit sample")
+    gaps.add_argument("--audit", type=Path, help="owner's audit file; report agreement")
+    gaps.add_argument("--format", choices=FORMATS, help="output format (default: json)")
+    _add_root_config(gaps)
 
 
 def _load_baseline(path: Path) -> set[str]:
@@ -228,6 +249,23 @@ def _eval(args: argparse.Namespace) -> int:
     return 1 if gate and not gate["passed"] else 0
 
 
+def _gaps(args: argparse.Namespace) -> int:
+    try:
+        cfg = load_config(args.config, args.root, Path.cwd())
+        run = run_gaps_command(cfg, args)
+    except ConfigError as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 2
+    except (InputError, CaseError, SnapshotError) as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 3
+    if (args.format or "json") == "json":
+        print(json.dumps(run, ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.write(render_gaps_text(run))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -239,5 +277,7 @@ def main(argv: list[str] | None = None) -> int:
         return _index(args)
     if args.command == "eval":
         return _eval(args)
+    if args.command == "gaps":
+        return _gaps(args)
     parser.print_help()
     return 0
