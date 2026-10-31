@@ -170,6 +170,15 @@ class Store:
         removed = [p for p in stored if p not in wanted]
         return False, changed, removed
 
+    def matches(self, cfg: Config) -> bool:
+        """True when the index was built with this profile, tokenizer and schema."""
+        meta = self._meta()
+        return (
+            meta.get("schema") == str(defaults.SCHEMA_VERSION)
+            and meta.get("tokenizer") == str(defaults.TOKENIZER_VERSION)
+            and meta.get("config") == config_hash(cfg)
+        )
+
     def _tree_is(self, signature: str) -> bool:
         return self._meta().get("tree") == signature
 
