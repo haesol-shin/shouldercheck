@@ -47,3 +47,43 @@ def test_oversized_file_findings_can_be_suppressed_per_path(tree):
     toml = "[size]\nwarn_chars = 500\n" + ON + toml
     report = check(root, toml)
     assert report.findings == [] and report.suppressed["size"] == 1
+
+
+def long_lines(root, config):
+    return [(s, p, n, t) for s, p, n, t in rows(check(root, config), "size")]
+
+
+def test_line_chars_names_every_long_line_with_its_length(tree):
+    root = tree({"a.md": "short\n" + "x" * 460 + "\nshort\n" + "y" * 451 + "\n" + "z" * 450 + "\n"})
+    report = check(root, "[size]\nline_chars = 450\n" + ON)
+    assert [(f.severity, f.path, f.line, f.target) for f in report.findings] == [
+        ("warn", "a.md", 2, "line-chars"),
+        ("warn", "a.md", 4, "line-chars"),
+    ]
+    assert [f.message for f in report.findings] == [
+        "line of 460 characters (over 450)",
+        "line of 451 characters (over 450)",
+    ]
+
+
+def test_line_chars_counts_characters_and_follows_the_check_severity(tree):
+    root = tree({"ko.md": "가" * 300 + "\n", "ok.md": "가" * 200 + "\n"})
+    toml = "[size]\nline_chars = 250\n[checks]\nsize = 'error'\n"
+    assert long_lines(root, toml) == [("error", "ko.md", 1, "line-chars")]
+
+
+def test_line_chars_is_off_by_default_and_replaces_the_longest_line_row(tree):
+    root = tree({"a.md": "x" * 300 + "\n"})
+    assert check(root, "[size]\n" + ON).findings == []
+    # Both limits crossed: one row per long line, not a second summary row for the same line.
+    both = "[size]\nmax_line_chars = 200\nline_chars = 100\n" + ON
+    assert long_lines(root, both) == [("warn", "a.md", 1, "line-chars")]
+    assert long_lines(root, "[size]\nmax_line_chars = 200\n" + ON) == [
+        ("warn", "a.md", 1, "line-length")
+    ]
+
+
+def test_line_chars_respects_exclude(tree):
+    root = tree({"sources/p.md": "x" * 300 + "\n"})
+    toml = '[size]\nline_chars = 100\nexclude = ["sources/**"]\n' + ON
+    assert check(root, toml).findings == []

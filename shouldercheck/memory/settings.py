@@ -439,3 +439,22 @@ def gaps_settings(cfg: Config) -> GapsSettings:
     if not 0 < weak <= present <= 1:
         raise ConfigError(f"{where}: [gaps] needs 0 < weak <= present <= 1")
     return GapsSettings(_integer(table, "candidates", 5, 1, where), present, weak)
+
+
+RESUME_KEYS = {"selectors", "max_chars"}
+RESUME_MAX_CHARS = 50_000
+
+
+@dataclass(frozen=True)
+class ResumeSettings:
+    selectors: tuple[str, ...]
+    max_chars: int
+
+
+def resume_settings(cfg: Config) -> ResumeSettings:
+    where = _where(cfg)
+    table = _table(cfg.resume, "resume", RESUME_KEYS, where)
+    return ResumeSettings(
+        selectors=_strings(table.get("selectors", []), "[resume] selectors", where),
+        max_chars=_integer(table, "max_chars", RESUME_MAX_CHARS, 1, where),
+    )
