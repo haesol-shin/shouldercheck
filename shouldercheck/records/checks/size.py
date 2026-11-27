@@ -45,6 +45,29 @@ def _longest_line(doc: Doc, corpus: Corpus, primary: str) -> list[Finding]:
     return [Finding("size", primary, doc.path, message, lengths.index(longest) + 1, "line-length")]
 
 
+def _long_lines(doc: Doc, corpus: Corpus, primary: str) -> list[Finding]:
+    limit = corpus.cfg.size.line_chars
+    return [
+        Finding(
+            "size",
+            primary,
+            doc.path,
+            f"line of {len(line)} characters (over {limit})",
+            n,
+            "line-chars",
+        )
+        for n, line in enumerate(split_lines(doc.text), 1)
+        if len(line) > limit
+    ]
+
+
+def _lines(doc: Doc, corpus: Corpus, primary: str) -> list[Finding]:
+    """`line_chars` names every long line and replaces the one-row `max_line_chars` summary."""
+    if corpus.cfg.size.line_chars is None:
+        return _longest_line(doc, corpus, primary)
+    return _long_lines(doc, corpus, primary)
+
+
 def _map(doc: Doc, corpus: Corpus) -> list[Finding]:
     opts = corpus.cfg.size
     if not opts.maps(doc.path) or len(doc.text) <= opts.map_budget_chars:
@@ -62,6 +85,6 @@ def run(corpus: Corpus) -> list[Finding]:
         if corpus.cfg.size.exclude(doc.path):
             continue
         findings += _document(doc, corpus, primary)
-        findings += _longest_line(doc, corpus, primary)
+        findings += _lines(doc, corpus, primary)
         findings += _map(doc, corpus)
     return findings

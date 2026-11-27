@@ -20,3 +20,5 @@ All notable changes to shouldercheck are documented here. The format is based on
 - `shck eval` measures retrieval on a failure ledger and a probe set (Hit@k, MRR, abstention, lexical-overlap buckets) on live trees or git snapshots, `eval compare` applies an exact McNemar test, and `--gate` fails when a pinned case regresses.
 - `shck gaps` checks facts extracted from a source against the records by string coverage (`present`, `weak`, `absent`), prints a seeded audit sample for the owner, and reports agreement with that audit.
 - `shck report` counts failures per stage from the ledger, eval and gaps runs, audits and the query log, with Wilson intervals and no composite score.
+- `shck pack` prints the sections named by `path#heading` selectors, or by `[resume]` in the profile, with a receipt of selector, characters and sha256; it stops with exit 2 on an unknown, ambiguous or out-of-root selector and when the text is over `max_chars`.
+- `shck check` can report every line over `[size] line_chars` (`size`, off by default) with its line number and length.

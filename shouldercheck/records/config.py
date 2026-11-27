@@ -31,6 +31,7 @@ DEFAULT_CHECKS = {
 }
 FIELD_RULE_KEYS = {"match", "folder_any", "require", "values", "body_lines", "body_lines_max"}
 SIZE_KEYS = {"warn_chars", "high_chars", "max_line_chars", "map_budget_chars", "maps", "exclude"}
+SIZE_KEYS |= {"line_chars"}
 ORPHAN_KEYS = {"scope", "catalog", "exempt", "exempt_names", "unit", "folder_depth", "grace_days"}
 LINK_STYLES = ("markdown", "wiki", "backtick")
 DEFAULT_LINKS = ("markdown", "wiki")
@@ -97,6 +98,7 @@ class SizeOpts:
     map_budget_chars: int
     maps: Globs
     exclude: Globs
+    line_chars: int | None = None
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,7 @@ class Config:
     index: dict = field(default_factory=dict)
     eval: dict = field(default_factory=dict)
     gaps: dict = field(default_factory=dict)
+    resume: dict = field(default_factory=dict)
 
     @property
     def display_path(self) -> str | None:
@@ -318,6 +321,9 @@ def _size(data: dict, where: str) -> SizeOpts:
         map_budget_chars=_integer(table, "map_budget_chars", 24_000, 1, "size", where),
         maps=_globs(table, "maps", (), where),
         exclude=_globs(table, "exclude", (), where),
+        line_chars=(
+            _integer(table, "line_chars", 1, 1, "size", where) if "line_chars" in table else None
+        ),
     )
 
 
@@ -353,7 +359,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
     top = {"version", "root", "include", "exclude", "frozen", "frozen_manifests"}
     top |= {"max_read_chars", "links", "fail_on", "format"}
     allowed = {"checks", "links_opts", "orphans", "fields", "size", "stale", "per-path-ignores"}
-    allowed |= {"find", "index", "eval", "gaps"}
+    allowed |= {"find", "index", "eval", "gaps", "resume"}
     unknown = sorted(set(data) - top - allowed)
     if unknown:
         raise ConfigError(f"{where}: unknown key(s): {', '.join(unknown)}")
@@ -385,6 +391,7 @@ def load_config(config_path: Path | None, root_arg: Path | None, cwd: Path) -> C
         index=data.get("index", {}),
         eval=data.get("eval", {}),
         gaps=data.get("gaps", {}),
+        resume=data.get("resume", {}),
         max_read_chars=max_read,
         links=_link_styles(data, where),
         opts=options,

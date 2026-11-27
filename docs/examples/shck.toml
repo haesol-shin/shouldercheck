@@ -42,6 +42,7 @@ grace_days = 0
 warn_chars = 30000
 high_chars = 50000
 max_line_chars = 2000
+line_chars = 450
 maps = ["index.md"]
 map_budget_chars = 24000
 exclude = ["**/sources/**"]
@@ -50,6 +51,10 @@ exclude = ["**/sources/**"]
 match = ["projects/*.md"]
 days = 14
 field = "updated"
+
+[resume]
+selectors = ["projects/README.md"]
+max_chars = 50000
 
 [[fields.rules]]
 match = ["projects/*.md"]

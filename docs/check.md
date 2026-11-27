@@ -60,7 +60,7 @@ Globs match relative POSIX paths. `*` stays inside one folder, `**` crosses fold
 
 `[[fields.rules]]`: `match` (globs) or `folder_any = { in = [...], when_present = [...] }`, `require` (keys, at least one), `values` (allowed values per key), `body_lines` (default `false`), `body_lines_max` (default `12`).
 
-`[size]`: `warn_chars` (default `30000`), `high_chars` (`50000`), `max_line_chars` (`2000`), `map_budget_chars` (`24000`), `maps` and `exclude` (globs).
+`[size]`: `warn_chars` (default `30000`), `high_chars` (`50000`), `max_line_chars` (`2000`), `line_chars` (off), `map_budget_chars` (`24000`), `maps` and `exclude` (globs).
 
 `[stale]`: `match` (globs), `days` (default `14`), `field` (default `updated`).
 
@@ -75,7 +75,7 @@ Globs match relative POSIX paths. `*` stays inside one folder, `**` crosses fold
 | `orphan` | `warn`; `candidate` when only a catalog links it | A file, or with `unit = "folder"` a folder (the first `folder_depth` folders of the path), with no inbound link from another file. Links from `catalog` files do not count as inbound. Frozen files count as link sources. Off until `[orphans] scope` is set. |
 | `missing-field` | `warn` | `[[fields.rules]]`: `match` globs need keys in each file; `folder_any` needs one file per folder with the key, only in folders holding a `when_present` file. Keys come from front matter, then (`body_lines = true`) from `key: value` lines in the first `body_lines_max` lines. A value is reduced to the text before the first space, `(` or `·` before it is compared with `values`. |
 | `alias-dup` | `error`; `candidate` for a title or file-name clash | The same front matter alias on two documents, after case folding and removal of spaces, `-`, `.`, `_` and `·`. Frozen files own no alias. |
-| `size` | `warn`; `candidate` | Characters (not bytes or words) over `warn_chars` (`candidate`) or `high_chars`; a line over `max_line_chars`; a `maps` file over `map_budget_chars` (`candidate`). `exclude` skips verbatim copies. |
+| `size` | `warn`; `candidate` | Characters (not bytes or words) over `warn_chars` (`candidate`) or `high_chars`; a line over `max_line_chars` (one row for the longest line of a file); with `line_chars` set, one row per line over `line_chars` with its line number and length, instead of the `max_line_chars` row (the fingerprint is per file, so a baseline mutes all long lines of a file); a `maps` file over `map_budget_chars` (`candidate`). `exclude` skips verbatim copies. |
 | `dup-content` | as set in `[checks]` | Files over 200 bytes with identical bytes. The survivor is a human choice. |
 | `stale` | as set in `[checks]` | Files matching `[stale] match` whose date in `field` (default `updated`) is older than `days`. |
 

@@ -45,6 +45,7 @@ class Ignore:
 class Heading:
     line: int
     text: str
+    level: int = 1
 
 
 @dataclass(frozen=True)
@@ -273,7 +274,8 @@ def find_headings(text: str, line_no: int) -> list[Heading]:
     match = HEADING.match(text)
     if not match:
         return []
-    return [Heading(line_no, TRAILING_HASHES.sub("", match.group(1) or "").strip())]
+    level = len(text.lstrip()) - len(text.lstrip().lstrip("#"))
+    return [Heading(line_no, TRAILING_HASHES.sub("", match.group(1) or "").strip(), level)]
 
 
 def find_wikis(text: str, line_no: int) -> list[Wiki]:

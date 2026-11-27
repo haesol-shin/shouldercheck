@@ -51,6 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_eval(sub)
     _add_gaps(sub)
     _add_report(sub)
+    _add_pack(sub)
     return parser
 
 
@@ -144,6 +145,22 @@ def _add_report(sub: "argparse._SubParsersAction") -> None:
     rep.add_argument("--audit", nargs="+", type=Path, default=[], help="owner audit files")
     rep.add_argument("--format", choices=FORMATS, help="output format (default: text)")
     _add_root_config(rep)
+
+
+def _add_pack(sub: "argparse._SubParsersAction") -> None:
+    pack = sub.add_parser(
+        "pack",
+        help="print the chosen sections with a read receipt (read-only)",
+        description="Print each section as written, then a receipt: selector, characters, sha256.",
+    )
+    pack.add_argument(
+        "selectors",
+        nargs="*",
+        metavar="SELECTOR",
+        help="path or path#heading (default: [resume] selectors)",
+    )
+    pack.add_argument("--json", action="store_true", help="print the same data as JSON")
+    _add_root_config(pack)
 
 
 def _load_baseline(path: Path) -> set[str]:
@@ -308,6 +325,25 @@ def _report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _pack(args: argparse.Namespace) -> int:
+    from shouldercheck.memory.pack import PackError, pack, to_json
+    from shouldercheck.memory.pack import render_text as render_pack_text
+    from shouldercheck.memory.settings import resume_settings
+
+    try:
+        cfg = load_config(args.config, args.root, Path.cwd())
+        resume = resume_settings(cfg)
+        pieces = pack(cfg, tuple(args.selectors) or resume.selectors, resume.max_chars)
+    except (ConfigError, PackError) as exc:
+        print(f"shck: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(to_json(pieces), ensure_ascii=False, indent=2))
+    else:
+        sys.stdout.write(render_pack_text(pieces))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -323,5 +359,7 @@ def main(argv: list[str] | None = None) -> int:
         return _gaps(args)
     if args.command == "report":
         return _report(args)
+    if args.command == "pack":
+        return _pack(args)
     parser.print_help()
     return 0
